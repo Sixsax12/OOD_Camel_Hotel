@@ -75,6 +75,26 @@ class GuestManager:
             self._insert(c, s)
         return True, f"เพิ่มแขกเป็นกลุ่มสำเร็จ {len(ids)} คน"
 
+    def add_guests_range(self, c: int, s_start: int, count: int) -> tuple[bool, str]:
+        """เพิ่มแขกเป็นกลุ่มแบบระบุช่วง 
+
+        รับช่องทาง c, ลำดับเริ่มต้น s_start และจำนวนแขก count
+        count ต้องเป็นจำนวนเต็มไม่ติดลบ โดย 0 หมายถึงไม่เปลี่ยนข้อมูล
+        ถ้าช่วงรหัสทับกับแขกที่มีอยู่ ให้ปฏิเสธทั้งกลุ่มและคงข้อมูลเดิมไว้
+        (ส่งต่อให้ add_guests ซึ่งทำกติกา all-or-nothing อยู่แล้ว)
+        """
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            return False, "ปฏิเสธคำสั่ง: จำนวนแขกต้องเป็นจำนวนเต็มไม่ติดลบ"
+        try:
+            _validate_guest_id(c, s_start)
+        except ValueError as err:
+            return False, str(err)
+        if count == 0:
+            return True, "จำนวนแขกเป็น 0 จึงไม่เปลี่ยนแปลงข้อมูล"
+
+        ids = [(c, s_start + i) for i in range(count)]
+        return self.add_guests(ids)
+
     def populate_initial(self, channels: int, per_channel: int) -> tuple[bool, str]:
         """สร้างแขกเริ่มต้นของระบบ"""
         ids = [(c, s) for c in range(1, channels + 1) for s in range(1, per_channel + 1)]
