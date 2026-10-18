@@ -14,12 +14,8 @@ env/
 .coverage
 htmlcov/
 
-# Output artifacts
-results/
-*.csv
-!sample_*.csv
-figures/*.png
-!figures/.gitkeep
+# ผลการทดลอง (results/) และกราฟ (figures/) ไม่ ignore
+# เพราะเป็นไฟล์ที่ต้องส่งตามโจทย์หัวข้อ 10.1 ข้อ 3 และใช้ประกอบรายงาน
 
 # IDE & OS
 .vscode/
