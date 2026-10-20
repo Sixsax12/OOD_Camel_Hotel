@@ -13,7 +13,7 @@ def cantor_room_no(c: int, s: int) -> int:
 def _validate_guest_id(c: int, s: int) -> None:
     for v in (c, s):
         if isinstance(v, bool) or not isinstance(v, int) or v < 1:
-            raise ValueError("รหัสช่องทาง (c) และลำดับ (s) ต้องเป็นจำนวนเต็มบวก")
+            raise ValueError("Channel id (c) and sequence id (s) must be positive integers")  # รหัสช่องทาง (c) และลำดับ (s) ต้องเป็นจำนวนเต็มบวก
 
 
 @dataclass
@@ -53,9 +53,9 @@ class GuestManager:
         except ValueError as err:
             return False, str(err)
         if (c, s) in self.guests:
-            return False, f"ปฏิเสธคำสั่ง: แขกรหัส ({c},{s}) มีอยู่ในระบบแล้ว"
+            return False, f"Rejected: guest ({c},{s}) already exists"  # ปฏิเสธคำสั่ง: แขกรหัสนี้มีอยู่ในระบบแล้ว
         g = self._insert(c, s)
-        return True, f"เพิ่มแขก ({c},{s}) -> อาคาร {g.node_id} ห้อง {g.room_no}"
+        return True, f"Added guest ({c},{s}) -> building {g.node_id} room {g.room_no}"  # เพิ่มแขกเข้าอาคารและห้อง
 
     def add_guests(self, ids: list[tuple[int, int]]) -> tuple[bool, str]:
         """เพิ่มguestเป็นกลุ่ม: ถ้ามีรหัสซ้ำหรือไม่ถูกต้องแม้ 1 รายการ ปฏิเสธทั้งกลุ่ม (ไม่เพิ่มเลยสักคน)"""
@@ -65,15 +65,15 @@ class GuestManager:
                 c, s = item
                 _validate_guest_id(c, s)
             except (ValueError, TypeError):
-                return False, f"ปฏิเสธทั้งกลุ่ม: รหัสแขกไม่ถูกต้อง {item}"
+                return False, f"Whole batch rejected: invalid guest id {item}"  # ปฏิเสธทั้งกลุ่ม: รหัสแขกไม่ถูกต้อง
             if (c, s) in self.guests:
-                return False, f"ปฏิเสธทั้งกลุ่ม: แขก ({c},{s}) มีอยู่ในระบบแล้ว"
+                return False, f"Whole batch rejected: guest ({c},{s}) already exists"  # ปฏิเสธทั้งกลุ่ม: แขกมีอยู่ในระบบแล้ว
             if (c, s) in seen:
-                return False, f"ปฏิเสธทั้งกลุ่ม: พบรหัส ({c},{s}) ซ้ำภายในกลุ่ม"
+                return False, f"Whole batch rejected: duplicate id ({c},{s}) inside the batch"  # ปฏิเสธทั้งกลุ่ม: พบรหัสซ้ำภายในกลุ่ม
             seen.add((c, s))
         for c, s in ids:
             self._insert(c, s)
-        return True, f"เพิ่มแขกเป็นกลุ่มสำเร็จ {len(ids)} คน"
+        return True, f"Added {len(ids)} guests"  # เพิ่มแขกเป็นกลุ่มสำเร็จ
 
     def add_guests_range(self, c: int, s_start: int, count: int) -> tuple[bool, str]:
         """เพิ่มแขกเป็นกลุ่มแบบระบุช่วง 
@@ -84,13 +84,13 @@ class GuestManager:
         (ส่งต่อให้ add_guests ซึ่งทำกติกา all-or-nothing อยู่แล้ว)
         """
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-            return False, "ปฏิเสธคำสั่ง: จำนวนแขกต้องเป็นจำนวนเต็มไม่ติดลบ"
+            return False, "Rejected: guest count must be a non-negative integer"  # ปฏิเสธคำสั่ง: จำนวนแขกต้องเป็นจำนวนเต็มไม่ติดลบ
         try:
             _validate_guest_id(c, s_start)
         except ValueError as err:
             return False, str(err)
         if count == 0:
-            return True, "จำนวนแขกเป็น 0 จึงไม่เปลี่ยนแปลงข้อมูล"
+            return True, "Guest count is 0, nothing changed"  # จำนวนแขกเป็น 0 จึงไม่เปลี่ยนแปลงข้อมูล
 
         ids = [(c, s_start + i) for i in range(count)]
         return self.add_guests(ids)
@@ -103,10 +103,10 @@ class GuestManager:
     def remove_guest(self, c: int, s: int) -> tuple[bool, str]:
         g = self.guests.get((c, s))
         if g is None:
-            return False, f"ปฏิเสธคำสั่ง: ไม่พบแขก ({c},{s})"
+            return False, f"Rejected: guest ({c},{s}) not found"  # ปฏิเสธคำสั่ง: ไม่พบแขกรหัสนี้
         del self.guests[(c, s)]
         del self.room_index[(g.node_id, g.room_no)]
-        return True, f"ลบแขก ({c},{s}) สำเร็จ"
+        return True, f"Removed guest ({c},{s})"  # ลบแขกสำเร็จ
 
 
     """######### ค้นหา 2 ทาง ##########"""
