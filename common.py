@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import gc
+import tracemalloc
 import statistics
 from pathlib import Path
 
@@ -43,3 +45,34 @@ def summarize_rounds(values: list) -> dict | None:
         "max": max(clean),
         "rounds": len(clean),
     }
+
+def load_statistics(counts: list[int]) -> dict:
+    """max / min / mean / SD / CV ของโหลดต่ออาคาร (ไม่มีแขก -> CV เป็น None)"""
+    if not counts:
+        raise ValueError("ต้องมีอาคารอย่างน้อย 1 หลัง")
+
+    if sum(counts) == 0:
+        return {"max": 0, "min": 0, "mean": 0.0, "sd": 0.0, "cv": None}
+
+    mean = statistics.fmean(counts)
+    sd = statistics.pstdev(counts)
+    return {
+        "max": max(counts),
+        "min": min(counts),
+        "mean": mean,
+        "sd": sd,
+        "cv": sd / mean if mean > 0 else None,
+    }
+
+
+def measure_memory(build) -> tuple[float, float]:
+    """วัดหน่วยความจำที่ `build()` ใช้ด้วย tracemalloc คืน (current_mib, peak_mib)"""
+    gc.collect()
+    tracemalloc.start()
+    baseline, _ = tracemalloc.get_traced_memory()
+    keep = build()  # ถือ reference ไว้จนวัดเสร็จ
+    current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    del keep
+    gc.collect()
+    return (current - baseline) / MIB, (peak - baseline) / MIB

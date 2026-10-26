@@ -18,18 +18,19 @@ OOD_Camel_Hotel/
 ├── guest_room.py        # Part 2: Guest, Cantor room_no, GuestManager + ดัชนี 2 ทาง
 ├── building_manager.py  # Part 3: เพิ่ม/ลบอาคาร และการย้ายแขก พร้อมรายงานผล
 ├── common.py            # Part 4: พารามิเตอร์การทดลอง (K, N, V, salt) ที่ใช้ร่วมกัน
-├── experiments.py       # Part 4: วัดผลการทดลอง A/B/C และเขียน CSV  <-- จุดเริ่มรัน
+├── experiments.py       # Part 4: วัดผลการทดลอง A/B/C และเขียน CSV  <-- จุดเริ่มรัน (โมดูลหลักของการทดลอง)
 ├── plots.py             # Part 4: วาดกราฟ 3 ภาพจากผลที่วัดได้
+├── menu.py              # Part 5: อินเทอร์เฟซเมนู CLI และฟังก์ชันเสริม (Export CSV, เปรียบเทียบ)
 ├── test_all.py          # Unit tests ครอบคลุมกฎและกรณีขอบทั้งหมด
-├── requirements.txt     # Third-party dependency (เฉพาะ experiments.py)
+├── requirements.txt     # Third-party dependency (เฉพาะ experiments.py และ plots.py)
 ├── results/             # CSV ผลการทดลองและข้อมูลแขก (สร้างอัตโนมัติ)
 ├── figures/             # กราฟ PNG (สร้างอัตโนมัติ)
 ├── .gitignore           # Git ignore rules
 └── README.md            # เอกสารแนะนำและคู่มือการรัน
 ```
 
-ลำดับการพึ่งพา: `hash_ring` → `guest_room` → `building_manager` → `experiments` → `plots`
-โดย `common.py` เป็นโมดูลกลางที่ทั้ง `experiments` และ `plots` เรียกใช้
+ลำดับการพึ่งพา: `hash_ring` → `guest_room` → `building_manager` → `experiments` → `plots`  
+โดย `common.py` เป็นโมดูลกลางที่ทั้ง `experiments` และ `plots` เรียกใช้  
 **ถ้าจะเปลี่ยนพารามิเตอร์ของการทดลอง (K, N, V, salt) ให้แก้ที่ `common.py` ที่เดียว**
 
 ---
@@ -42,6 +43,15 @@ python -m unittest test_all.py -v
 
 ---
 
+## 💻 วิธีการรันเมนู Interactive CLI (`menu.py`)
+เปิดโปรแกรมเมนูจัดการโรงแรมแบบโต้ตอบด้วยคำสั่ง:
+```bash
+python menu.py
+```
+* **คุณสมบัติของเมนู**: ระบบเมนูครบ 10 รายการ ครอบคลุมการเริ่มระบบ, เพิ่ม/ลบแขก (รายคน/กลุ่ม), ค้นหา 2 ทาง, เพิ่ม/ลบอาคาร และดูรายงานโหลด พร้อมระบบดักจับข้อผิดพลาด (`try/except`) ป้องกันโปรแกรมหลุดเมื่อผู้ใช้ป้อนข้อมูลผิดพลาดหรือกด `Ctrl+C` / `Ctrl+D`
+
+---
+
 ## 📌 สรุปคุณสมบัติในส่วน Part 1: Hash Ring Core
 * **64-bit SHA-256**: แมปรหัสแขกและ node เป็นตำแหน่งบน ring ขนาด $0$ ถึง $2^{64}-1$ คงที่ข้ามการรัน
 * **Consistent Hash Ring**:
@@ -50,6 +60,23 @@ python -m unittest test_all.py -v
   * ค้นหาแบบ Clockwise Wrap-around ด้วย Binary Search (`bisect.bisect_left`)
 * **Edge Cases & Graceful Rejection**: ป้องกันการเพิ่ม node ซ้ำ, ลบ node ที่ไม่มีอยู่, และลบ node สุดท้าย
 * **Modulo Baseline (`ModuloNodeSelector`)**: ตัวเปรียบเทียบแบบ $\text{hash(guest)} \bmod N$
+
+---
+
+## 📌 สรุปคุณสมบัติในส่วน Part 2: Guest Room Management
+* **Cantor Pairing Formula**: คำนวณเลขห้องพัก (`room_no`) จากรหัสช่องทาง (`c`) และลำดับ (`s`) ด้วยสูตร Cantor Pairing ทำให้เลขห้องไม่ขึ้นกับอาคาร และ**ไม่เปลี่ยนแปลงเมื่อแขกย้ายอาคาร**
+* **GuestManager & Two-way Indexing**:
+  * เก็บโครงสร้างดัชนี 2 ทาง ระหว่างรหัสแขก `(c, s)` และที่อยู่ห้อง `(node_id, room_no)`
+  * รองรับการเพิ่มแขกรายคน, การเพิ่มเป็นช่วง (`add_guests_range`), และการเพิ่มเป็นกลุ่มแบบ All-or-Nothing (ถ้ามีข้อผิดพลาดหรือรหัสซ้ำแม้แต่รายการเดียว จะปฏิเสธทั้งกลุ่มทันทีเพื่อความปลอดภัยของข้อมูล)
+
+---
+
+## 📌 สรุปคุณสมบัติในส่วน Part 3: Building Manager
+* **Building Change Management**: รองรับการเพิ่มอาคาร (`add_building`) และลบอาคาร (`remove_building`) พร้อมตรวจสอบความถูกต้องตามกติกาของระบบกระจายศูนย์
+* **Move Tracking & Rules**:
+  * ค้นหาแขกที่ได้รับผลกระทบด้วย `find_misplaced()`
+  * ตรวจสอบกฎการย้าย (เพิ่มอาคารต้องย้ายเข้าอาคารใหม่เท่านั้น / ลบอาคารต้องย้ายเฉพาะแขกของอาคารที่ถูกลบ)
+  * บันทึกรายการย้ายเป็น `MoveRecord` และคำนวณอัตราการย้ายเทียบกับค่าคาดหวัง $K/(N+1)$ หรือ $K/N$ พร้อมวัดเวลาแยกตามขั้นตอนอย่างละเอียด
 
 ---
 
@@ -65,14 +92,14 @@ pip install -r requirements.txt
 python experiments.py
 ```
 
-ส่วนนี้แยกเป็น 3 ไฟล์ตามหน้าที่: `common.py` เก็บพารามิเตอร์,
-`experiments.py` วัดผลและเขียน CSV, `plots.py` วาดกราฟ
+ส่วนนี้แยกเป็น 3 ไฟล์ตามหน้าที่: `common.py` เก็บพารามิเตอร์,  
+`experiments.py` วัดผลและเขียน CSV, `plots.py` วาดกราฟ  
 (`plots.py` ไม่คำนวณสถิติใหม่ รับผลที่วัดมาแล้วไปวาดอย่างเดียว)
 
-สคริปต์วัดผลจาก **ระบบจริงทั้งหมด** คือเรียก `HashRing` → `GuestManager` → `BuildingManager`
-ไม่ได้คำนวณเองซ้ำ ตัวเลข Big-O ในรายงานจึงตรงกับโค้ดที่ส่งจริงตามหัวข้อ 8
-และเนื่องจาก `GuestManager`/`BuildingManager` เรียกแค่ `get_node` / `add_node` / `remove_node` / `nodes`
-จึงใช้ `ModuloNodeSelector` แทนที่ `HashRing` ได้ตรง ๆ ทำให้การทดลอง B
+สคริปต์วัดผลจาก **ระบบจริงทั้งหมด** คือเรียก `HashRing` → `GuestManager` → `BuildingManager`  
+ไม่ได้คำนวณเองซ้ำ ตัวเลข Big-O ในรายงานจึงตรงกับโค้ดที่ส่งจริงตามหัวข้อ 8  
+และเนื่องจาก `GuestManager`/`BuildingManager` เรียกแค่ `get_node` / `add_node` / `remove_node` / `nodes`  
+จึงใช้ `ModuloNodeSelector` แทนที่ `HashRing` ได้ตรง ๆ ทำให้การทดลอง B  
 เทียบสองวิธีบนระบบและชุดแขกเดียวกันได้ตามหัวข้อ 7.1
 
 | ชุด | ตัวแปรที่เปลี่ยน | ค่าคงที่ | วัดอะไร |
@@ -86,7 +113,7 @@ python experiments.py
 * จับเวลาด้วย `time.perf_counter()` แยกตามขั้นตอน ไม่รวมเวลาแสดงผลและเขียนไฟล์
 * วัดการค้นหาเป็นชุด 1,000 ครั้งแล้วหารต่อครั้ง
 * รายงานค่ามัธยฐานของ 3 รอบ พร้อมช่วงต่ำสุด–สูงสุด (error bar บนกราฟ)
-* วัดหน่วยความจำด้วย `tracemalloc` หักจากจุดเริ่มต้นเดียวกัน ใน**รอบที่แยกจากรอบจับเวลา**
+* วัดหน่วยความจำด้วย `tracemalloc` หักจากจุดเริ่มต้นเดียวกัน ใน**รอบที่แยกจากรอบจับเวลา**  
   รายงานทั้ง current และ peak เป็น MiB (เป็นหน่วยความจำที่ Python ติดตาม ไม่ใช่ของทั้งโปรเซส)
 
 **ผลลัพธ์ที่ได้**
@@ -100,7 +127,18 @@ figures/graph_B_move_rate_vs_N.png       # (ข) อัตราการย้�
 figures/graph_C_effect_of_V.png          # (ค) ผลของ V ต่อ CV และหน่วยความจำ
 ```
 
-`sample_guests.csv` มีคอลัมน์ `channel_id, sequence_id, node_id, room_no` ตามที่หัวข้อ 5 ข้อ 10 กำหนด
-และสคริปต์ `assert` ว่าจำนวนแถวเท่ากับจำนวนแขกในระบบพอดีตามเช็กลิสต์ก่อนส่ง
-ส่วน `experiment_B_moves.csv` เก็บเฉพาะ consistent hashing รอบ `salt=0`
+`sample_guests.csv` มีคอลัมน์ `channel_id, sequence_id, node_id, room_no` ตามที่หัวข้อ 5 ข้อ 10 กำหนด  
+และสคริปต์ `assert` ว่าจำนวนแถวเท่ากับจำนวนแขกในระบบพอดีตามเช็กลิสต์ก่อนส่ง  
+ส่วน `experiment_B_moves.csv` เก็บเฉพาะ consistent hashing รอบ `salt=0`  
 (ของ `hash mod N` มีหลักหมื่นแถวต่อรอบและไม่ให้ข้อมูลเกินกว่าตารางสรุป)
+
+---
+
+## 👥 ตารางหน้าที่สมาชิกในกลุ่ม (Team Member Roles)
+| ชื่อ-นามสกุล | รหัสนักศึกษา | หน้าที่และความรับผิดชอบหลัก |
+| :--- | :--- | :--- |
+| **ณัฐภูมิ บาดขุนทด** | 68010366 | พัฒนา Part 1 (Hash Ring Core, 64-bit SHA-256, ModuloNodeSelector) และเขียน Unit Tests |
+| **ฑริตา เปรมชุติวัต** | 68010283 | พัฒนา Part 2 (GuestManager, Cantor Pairing สูตรคำนวณเลขห้อง และระบบดัชนี 2 ทาง) |
+| **ปลิตา ชูรัตน์** | 68010669 | พัฒนา Part 3 (BuildingManager, ฟังก์ชันเพิ่ม/ลบอาคาร และระบบตรวจสอบกฎการย้าย) |
+| **พงศธร ฟักผล** | 68010726 | พัฒนา Part 4 (Experiments, Common, Plots) จัดการวัดผลทางสถิติและวาดกราฟ |
+| **ปริญา บุญสิงมา** | 68010662 | พัฒนา Part 5 (Interactive CLI Menu, Export CSV, Error Handling) และจัดทำเอกสาร README |
