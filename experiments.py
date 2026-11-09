@@ -11,11 +11,11 @@ from building_manager import BuildingManager
 from common import (
     A_K_VALUES, A_N, A_V, B_K, B_METHODS, B_N_VALUES, B_OPERATIONS, B_V,
     C_K, C_N, C_V_VALUES, MIB, N_CHANNELS, NEW_NODE_ID, PROJECT_DIR,
-    RESULTS_DIR, SALT_LABEL, SALTS, SEARCH_BATCH, summarize_rounds,
+    RESULTS_DIR, SALT_LABEL, SALTS, SEARCH_BATCH,
+    load_statistics, measure_memory, summarize_rounds,
 )
 from guest_room import GuestManager
 from hash_ring import HashRing, ModuloNodeSelector
-from plots import plot_experiment_A, plot_experiment_B, plot_experiment_C
 
 
 def build_node_ids(n: int) -> list[str]:
@@ -49,38 +49,6 @@ def build_system(method: str, node_ids: list[str], v_nodes: int, salt: int):
         selector = ModuloNodeSelector(node_ids, salt=salt)
     guests = GuestManager(selector)
     return selector, guests, BuildingManager(selector, guests, check_rules=True)
-
-
-def load_statistics(counts: list[int]) -> dict:
-    """max / min / mean / SD / CV ของโหลดต่ออาคาร (ไม่มีแขก -> CV เป็น None)"""
-    if not counts:
-        raise ValueError("ต้องมีอาคารอย่างน้อย 1 หลัง")
-
-    if sum(counts) == 0:
-        return {"max": 0, "min": 0, "mean": 0.0, "sd": 0.0, "cv": None}
-
-    mean = statistics.fmean(counts)
-    sd = statistics.pstdev(counts)
-    return {
-        "max": max(counts),
-        "min": min(counts),
-        "mean": mean,
-        "sd": sd,
-        "cv": sd / mean if mean > 0 else None,
-    }
-
-
-def measure_memory(build) -> tuple[float, float]:
-    """วัดหน่วยความจำที่ `build()` ใช้ด้วย tracemalloc คืน (current_mib, peak_mib)"""
-    gc.collect()
-    tracemalloc.start()
-    baseline, _ = tracemalloc.get_traced_memory()
-    keep = build()  # ถือ reference ไว้จนวัดเสร็จ
-    current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    del keep
-    gc.collect()
-    return (current - baseline) / MIB, (peak - baseline) / MIB
 
 
 def write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
@@ -247,8 +215,6 @@ B_MOVE_FIELDS = [
     "experiment", "salt", "N", "V", "K", "method", "operation", "target_node",
     "channel_id", "sequence_id", "old_node", "new_node", "room_no",
 ]
-B_METHODS = ("consistent", "modulo")
-B_OPERATIONS = ("add", "remove")
 
 
 def run_experiment_B() -> tuple[list[dict], list[dict]]:
@@ -461,7 +427,7 @@ def _write_experiment_B_summary(rows: list[dict]) -> None:
                         {
                             "experiment": "B",
                             "K": B_K,
-                            "V": B_V,
+                            "V": B_V if method == "consistent" else 0,
                             "salts": SALT_LABEL,
                             "N": n,
                             "method": method,
@@ -535,6 +501,8 @@ def main() -> None:
 
     # วาดทีละภาพ ภาพที่พังต้องไม่ทำให้ภาพอื่นหายไปด้วย
     print("\n=== วาดกราฟ ===")
+    from plots import plot_experiment_A, plot_experiment_B, plot_experiment_C
+
     failures: list[str] = []
     for plot, data in (
         (plot_experiment_A, summary_a),

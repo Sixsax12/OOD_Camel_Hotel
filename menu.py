@@ -1,16 +1,19 @@
-""" ข้อสำคัญ: เมธอดส่วนใหญ่คืน (bool, str) ไม่ throw exception
+"""ข้อสำคัญ: เมธอดส่วนใหญ่คืน (bool, str) ไม่ throw exception
 เมนูจึงแค่พิมพ์ข้อความที่ได้กลับมา และมี try/except กันโปรแกรมหยุดอีกชั้น
 """
 
+import copy
 import csv
 import time
 from pathlib import Path
-from hash_ring import HashRing, ModuloNodeSelector
-from common import RESULTS_DIR, load_statistics, measure_memory
-from guest_room import GuestManager
+
 from building_manager import BuildingManager
+from common import PROJECT_DIR, RESULTS_DIR, SEARCH_BATCH, load_statistics, measure_memory
+from guest_room import GuestManager
+from hash_ring import HashRing, ModuloNodeSelector
 
 MAX_PRINT = 20  # จำนวนรายการย้าย/ห้องที่พิมพ์สูงสุดต่อครั้ง
+
 
 def ask_int(prompt):
     while True:
@@ -21,6 +24,7 @@ def ask_int(prompt):
         except (KeyboardInterrupt, EOFError):
             print("\n Exit.")
             raise SystemExit
+
 
 def ask_str(prompt):
     try:
@@ -52,9 +56,13 @@ def show_change(r):
     else:
         print(f"  Moved Rate = {r.moved_rate:.2%}")
         if r.expected_moved is not None:
-            print(f"  Expected Moved = {r.expected_moved:.2f} (Expected K/(N+1))")
-    
-    print(f"  Timing -> Ring adjust: {r.t_ring_adjust:.6f}s | Find affected: {r.t_find_affected:.6f}s | Update data: {r.t_update_data:.6f}s")
+            expected_label = "Expected K/(N+1)" if r.action == "add" else "Expected K/N"
+            print(f"  Expected Moved = {r.expected_moved:.2f} ({expected_label})")
+
+    print(
+        f"  Timing -> Ring adjust: {r.t_ring_adjust:.6f}s | "
+        f"Find affected: {r.t_find_affected:.6f}s | Update data: {r.t_update_data:.6f}s"
+    )
     print(f"  Consistent Status: {'Consistent' if r.consistent else 'Inconsistent'}")
 
     for m in r.moves[:MAX_PRINT]:
@@ -74,6 +82,9 @@ def do_init(state):
     per = ask_int("Defult Guest (per channel): ")
     if n < 1 or v < 1:
         print("  N and V must more than 0")
+        return
+    if channels < 1 or per < 0:
+        print("  Number of channels must be >= 1 and guests per channel must be >= 0")
         return
     ring = HashRing([f"NODE{i:02d}" for i in range(1, n + 1)], v_nodes=v, salt=salt)
     guests = GuestManager(ring)
@@ -99,11 +110,17 @@ def do_remove_guest(st):
 
 
 def do_add_building(st):
-    show_change(st["buildings"].add_building(ask_str("New building ID: ")))
+    res = st["buildings"].add_building(ask_str("New building ID: "))
+    if res.ok:
+        st["last_change_result"] = res
+    show_change(res)
 
 
 def do_remove_building(st):
-    show_change(st["buildings"].remove_building(ask_str("Remove building ID: ")))
+    res = st["buildings"].remove_building(ask_str("Remove building ID: "))
+    if res.ok:
+        st["last_change_result"] = res
+    show_change(res)
 
 
 def do_find_guest(st):
@@ -126,9 +143,11 @@ def do_find_room(st):
 def do_list_rooms(st):
     rows = st["guests"].list_rooms()
     if not rows:
-        print(" Don't have any guest")
+        print(" Don't have any guest (Total occupied rooms: 0)")
         return
-    for row in rows[:MAX_PRINT * 5]:
+    print(f"  Total occupied rooms: {len(rows)}")
+    print("  node_id | room_no | channel_id | sequence_id")
+    for row in rows[: MAX_PRINT * 5]:
         print("  " + " | ".join(str(x) for x in row))
     if len(rows) > MAX_PRINT * 5:
         print(f"  ... show {MAX_PRINT * 5} from {len(rows)} rooms ")
@@ -145,11 +164,12 @@ def do_load(st):
             print(f"  {k} = {v:.4f}" if isinstance(v, float) else f"  {k} = {v}")
     else:
         print(f"  {stats}")
-        
+
+
 def do_export_csv(st):
-    """ Export CSV from menu (guests+rooms and latest moves)"""
+    """Export CSV from menu (guests+rooms and latest moves)"""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     guest_path = RESULTS_DIR / "menu_export_guests.csv"
     rows = [
         {"channel_id": c, "sequence_id": s, "node_id": node_id, "room_no": room_no}
@@ -159,7 +179,7 @@ def do_export_csv(st):
         writer = csv.DictWriter(fh, fieldnames=["channel_id", "sequence_id", "node_id", "room_no"])
         writer.writeheader()
         writer.writerows(rows)
-    print(f"  -> Exported guests successfully: {guest_path.relative_to(Path.cwd())} ({len(rows)} rows)")
+    print(f"  -> Exported guests successfully: {guest_path.relative_to(PROJECT_DIR)} ({len(rows)} rows)")
 
     last_res = st.get("last_change_result")
     if last_res and last_res.moves:
@@ -177,57 +197,171 @@ def do_export_csv(st):
             for m in last_res.moves
         ]
         with move_path.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.DictWriter(fh, fieldnames=["action", "building_id", "channel_id", "sequence_id", "old_node", "new_node", "room_no"])
+            writer = csv.DictWriter(
+                fh,
+                fieldnames=[
+                    "action",
+                    "building_id",
+                    "channel_id",
+                    "sequence_id",
+                    "old_node",
+                    "new_node",
+                    "room_no",
+                ],
+            )
             writer.writeheader()
             writer.writerows(move_rows)
-        print(f"  -> Exported last moves successfully: {move_path.relative_to(Path.cwd())} ({len(move_rows)} rows)")
+        print(f"  -> Exported last moves successfully: {move_path.relative_to(PROJECT_DIR)} ({len(move_rows)} rows)")
     else:
         print("  (No recent move records or no building change performed yet)")
-        
+
+
+def _format_move_summary(res) -> str:
+    if res.moved_rate is None:
+        return f"{res.moved_count} (N/A, {res.rate_note})"
+    return f"{res.moved_count} ({res.moved_rate:.2%})"
+
+
 def do_compare_hashing(st):
-    """2. Compare Consistent Hashing with hash mod N"""
+    """Compare Consistent Hashing with hash mod N on the same guest set and building changes"""
     node_ids = sorted(list(st["ring"].nodes))
-    if len(node_ids) < 2:
-        print("  Need at least 2 buildings to compare.")
+    if not node_ids:
+        print("  Need at least 1 building to compare.")
         return
+
     target_node = "COMPARE_NEW_NODE"
-    
-    import copy
-    ring_copy = copy.deepcopy(st["ring"])
-    guests_copy = copy.deepcopy(st["guests"])
-    bm_consistent = BuildingManager(ring_copy, guests_copy, check_rules=False)
-    res_c = bm_consistent.add_building(target_node)
+    idx = 1
+    while target_node in st["ring"].nodes:
+        target_node = f"COMPARE_NEW_NODE_{idx}"
+        idx += 1
 
-    mod_selector = ModuloNodeSelector(node_ids, salt=st["ring"].salt)
-    guests_mod = GuestManager(mod_selector)
-    for (c, s), g in st["guests"].guests.items():
-        guests_mod.add_guest(c, s)
-    bm_modulo = BuildingManager(mod_selector, guests_mod, check_rules=False)
-    res_m = bm_modulo.add_building(target_node)
+    guest_keys = sorted(st["guests"].guests.keys())
 
-    print("\n--- Comparison Results for Adding a New Building ---")
-    print(f"  Total Guests K = {len(st['guests'])}")
-    print(f"  Initial Buildings N = {len(node_ids)}")
-    print(f"  Consistent Hashing moved: {res_c.moved_count} ({res_c.moved_rate:.2%}) | Expected K/(N+1): {res_c.expected_moved:.2f}")
-    print(f"  Hash Mod N moved: {res_m.moved_count} ({res_m.moved_rate:.2%})")
+    # 1) เปรียบเทียบการเพิ่มอาคารใหม่ 1 หลัง
+    ring_add, guests_add = copy.deepcopy((st["ring"], st["guests"]))
+    bm_consistent_add = BuildingManager(ring_add, guests_add, check_rules=True)
+    res_c_add = bm_consistent_add.add_building(target_node)
+
+    mod_add = ModuloNodeSelector(node_ids, salt=st["ring"].salt)
+    guests_mod_add = GuestManager(mod_add)
+    guests_mod_add.add_guests(guest_keys)
+    bm_modulo_add = BuildingManager(mod_add, guests_mod_add, check_rules=False)
+    res_m_add = bm_modulo_add.add_building(target_node)
+
+    print("\n--- Comparison Results: Consistent Hashing vs Hash Mod N ---")
+    print(
+        f"  Parameters: N={len(node_ids)}, V={st['ring'].v_nodes}, "
+        f"K={len(guest_keys)}, salt={st['ring'].salt}"
+    )
+    print(f"  [1] Adding Building '{target_node}':")
+    exp_add_str = f"{res_c_add.expected_moved:.2f}" if res_c_add.expected_moved is not None else "N/A"
+    print(
+        f"    Consistent Hashing moved: {_format_move_summary(res_c_add)} "
+        f"| Expected K/(N+1): {exp_add_str} | Rule violations: {len(res_c_add.rule_violations)}"
+    )
+    print(f"    Hash Mod N moved:         {_format_move_summary(res_m_add)}")
+
+    # 2) เปรียบเทียบการลบอาคาร 1 หลัง (เมื่อมีอย่างน้อย 2 อาคาร)
+    if len(node_ids) >= 2:
+        rem_node = node_ids[0]
+        ring_rem, guests_rem = copy.deepcopy((st["ring"], st["guests"]))
+        bm_consistent_rem = BuildingManager(ring_rem, guests_rem, check_rules=True)
+        res_c_rem = bm_consistent_rem.remove_building(rem_node)
+
+        mod_rem = ModuloNodeSelector(node_ids, salt=st["ring"].salt)
+        guests_mod_rem = GuestManager(mod_rem)
+        guests_mod_rem.add_guests(guest_keys)
+        bm_modulo_rem = BuildingManager(mod_rem, guests_mod_rem, check_rules=False)
+        res_m_rem = bm_modulo_rem.remove_building(rem_node)
+
+        exp_rem_str = f"{res_c_rem.expected_moved:.2f}" if res_c_rem.expected_moved is not None else "N/A"
+        print(f"  [2] Removing Building '{rem_node}':")
+        print(
+            f"    Consistent Hashing moved: {_format_move_summary(res_c_rem)} "
+            f"| Expected K/N: {exp_rem_str} | Rule violations: {len(res_c_rem.rule_violations)}"
+        )
+        print(f"    Hash Mod N moved:         {_format_move_summary(res_m_rem)}")
 
 
 def do_measure_performance(st):
-    """3. Measure time + memory of core functions"""
-    print("\n--- Performance Measurement ---")
-    probes = list(st["guests"].guests.keys())[:1000]
-    if not probes:
-        print("  No guests available for lookup testing.")
-        return
+    """Measure time + memory of core functions according to Section 5(8) and 7.2"""
+    node_ids = sorted(list(st["ring"].nodes))
+    n = len(node_ids)
+    v = st["ring"].v_nodes
+    salt = st["ring"].salt
+    guest_keys = sorted(st["guests"].guests.keys())
+    k = len(guest_keys)
+
+    print("\n--- Performance Measurement (Time & Memory) ---")
+    print(f"  Parameters: N={n}, V={v}, M=N*V={n * v}, K={k}, salt={salt}, search_batch={SEARCH_BATCH}")
+
+    # 1. เวลาสร้างวงแหวน และเวลาจัดแขกเริ่มต้น
+    t0 = time.perf_counter()
+    temp_ring = HashRing(node_ids, v_nodes=v, salt=salt)
+    t_build_ring = time.perf_counter() - t0
 
     t0 = time.perf_counter()
-    for c, s in probes:
-        st["guests"].find_by_guest(c, s)
-    t_search = (time.perf_counter() - t0) / len(probes) * 1e6
-    print(f"  Average lookup time per guest (find_by_guest): {t_search:.3f} microseconds")
+    temp_guests = GuestManager(temp_ring)
+    if guest_keys:
+        temp_guests.add_guests(guest_keys)
+    t_assign_guests = time.perf_counter() - t0
 
-    current, peak = measure_memory(lambda: (HashRing(list(st["ring"].nodes), v_nodes=st["ring"].v_nodes, salt=st["ring"].salt)))
-    print(f"  Ring memory (current / peak): {current:.4f} MiB / {peak:.4f} MiB")
+    print(f"  Build ring time:    {t_build_ring * 1e3:.3f} ms")
+    print(f"  Assign guests time: {t_assign_guests * 1e3:.3f} ms")
+
+    # 2. เวลาค้นหาเป็นชุด 1,000 ครั้ง แล้วหารต่อครั้ง และเวลาเรียงลำดับห้อง
+    if guest_keys:
+        step = max(1, len(guest_keys) // SEARCH_BATCH)
+        probes = guest_keys[::step][:SEARCH_BATCH]
+        while len(probes) < SEARCH_BATCH:
+            probes.extend(guest_keys[: SEARCH_BATCH - len(probes)])
+
+        room_probes = [(st["guests"].guests[key].node_id, st["guests"].guests[key].room_no) for key in probes]
+
+        t0 = time.perf_counter()
+        for c, s in probes:
+            st["ring"].get_node(c, s)
+        t_get_node_us = (time.perf_counter() - t0) / len(probes) * 1e6
+
+        t0 = time.perf_counter()
+        for c, s in probes:
+            st["guests"].find_by_guest(c, s)
+        t_find_guest_us = (time.perf_counter() - t0) / len(probes) * 1e6
+
+        t0 = time.perf_counter()
+        for nid, rno in room_probes:
+            st["guests"].find_by_room(nid, rno)
+        t_find_room_us = (time.perf_counter() - t0) / len(room_probes) * 1e6
+
+        t0 = time.perf_counter()
+        st["guests"].list_rooms()
+        t_sort_rooms_ms = (time.perf_counter() - t0) * 1e3
+
+        print(f"  Ring lookup (get_node, avg of {len(probes)}):      {t_get_node_us:.3f} microseconds")
+        print(f"  Average lookup time per guest (find_by_guest): {t_find_guest_us:.3f} microseconds")
+        print(f"  Room lookup (find_by_room, avg of {len(room_probes)}): {t_find_room_us:.3f} microseconds")
+        print(f"  Sort occupied rooms (list_rooms):              {t_sort_rooms_ms:.3f} ms")
+    else:
+        print("  No guests available for lookup/sorting timing (K = 0).")
+
+    del temp_guests, temp_ring
+
+    # 3. วัดหน่วยความจำด้วย tracemalloc แยกรอบจากเวลา
+    ring_cur, ring_peak = measure_memory(
+        lambda: HashRing(node_ids, v_nodes=v, salt=salt)
+    )
+
+    def _build_full():
+        r = HashRing(node_ids, v_nodes=v, salt=salt)
+        gm = GuestManager(r)
+        if guest_keys:
+            gm.add_guests(guest_keys)
+        return r, gm
+
+    total_cur, total_peak = measure_memory(_build_full)
+    print(f"  Ring memory (current / peak):   {ring_cur:.4f} MiB / {ring_peak:.4f} MiB")
+    print(f"  System memory (current / peak): {total_cur:.4f} MiB / {total_peak:.4f} MiB")
+    print("  (Note: Memory measured via Python tracemalloc in a separate pass, not whole-process RSS)")
 
 
 MENU = [

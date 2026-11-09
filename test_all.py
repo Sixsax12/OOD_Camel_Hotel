@@ -1,5 +1,7 @@
 import csv
+import io
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,7 +9,16 @@ from building_manager import BuildingManager
 from common import RESULTS_DIR, load_statistics
 from guest_room import GuestManager, cantor_room_no
 from hash_ring import HashRing, ModuloNodeSelector, compute_sha256_64bit
-from menu import do_add_guest, do_export_csv, do_init
+from menu import (
+    do_add_building,
+    do_add_guest,
+    do_compare_hashing,
+    do_export_csv,
+    do_init,
+    do_list_rooms,
+    do_measure_performance,
+    do_remove_building,
+)
 
 
 """ Test Section 1 -- Hash Ring Core """
@@ -128,18 +139,22 @@ class TestPart2_CantorRoomNo(unittest.TestCase):
     """ทดสอบสูตร Cantor pairing ที่ใช้คำนวณเลขห้อง (room_no)"""
 
     def test_known_values(self) -> None:
-        """เช็คค่าที่คำนวณมือได้จากสูตรในคู่มือ: (1,1)->1, (2,1)->2, (1,2)->3"""
+        """เช็คค่าที่คำนวณมือได้จากตารางในหัวข้อ 4.2: (1,1)->1, (2,1)->2, (1,2)->3, (3,1)->4, (2,2)->5
+        ถ้าสูตรผิด (เช่นลืม +1 หรือสลับ a กับ b) เทสนี้จะล้ม"""
         self.assertEqual(cantor_room_no(1, 1), 1)
         self.assertEqual(cantor_room_no(2, 1), 2)
         self.assertEqual(cantor_room_no(1, 2), 3)
+        self.assertEqual(cantor_room_no(3, 1), 4)
+        self.assertEqual(cantor_room_no(2, 2), 5)
 
     def test_unique(self) -> None:
-        """เช็คว่ารหัสแขกคนละคู่ต้องได้เลขห้องไม่ซ้ำกัน"""
+        """เช็คว่ารหัสแขกคนละคู่ต้องได้เลขห้องไม่ซ้ำกัน
+        ลองทุกคู่ c, s ในช่วง 1..59 (3,481 คู่) แล้วนับว่าจำนวนเลขห้องที่ไม่ซ้ำเท่ากับจำนวนคู่"""
         rooms = {cantor_room_no(c, s) for c in range(1, 60) for s in range(1, 60)}
         self.assertEqual(len(rooms), 59 * 59)
 
     def test_invalid(self) -> None:
-        """เช็คว่า c หรือ s ที่เป็น 0 หรือติดลบ ต้องโดนปฏิเสธด้วย ValueError"""
+        """เช็คว่า c หรือ s ที่เป็น 0 หรือติดลบ ต้องโดนปฏิเสธด้วย ValueError (ไม่คำนวณต่อ)"""
         for bad in [(0, 1), (1, 0), (-1, 5)]:
             with self.assertRaises(ValueError):
                 cantor_room_no(*bad)
@@ -149,10 +164,13 @@ class TestPart2_GuestManager(unittest.TestCase):
     """ทดสอบ GuestManager: การเพิ่ม/ลบแขก ดัชนี 2 ทาง และการทำงานร่วมกับ HashRing"""
 
     def setUp(self) -> None:
+        """ก่อนทุกเทส: สร้างวงแหวนใหม่ (อาคาร A, B, C, V=8, salt=0) และ GuestManager ว่างๆ"""
         self.ring = HashRing(["A", "B", "C"], v_nodes=8, salt=0)
         self.gm = GuestManager(self.ring)
 
     def test_add_remove_and_duplicates(self) -> None:
+        """กรณีขอบเรื่องแขก: เพิ่มรหัสซ้ำต้องถูกปฏิเสธ, ลบแขกที่ไม่มีต้องถูกปฏิเสธ
+        (ได้ False) และลบแขกที่มีอยู่ต้องสำเร็จ จนจำนวนแขกกลับเป็น 0"""
         self.assertTrue(self.gm.add_guest(1, 1)[0])
         self.assertFalse(self.gm.add_guest(1, 1)[0])
         self.assertFalse(self.gm.remove_guest(9, 9)[0])
@@ -160,6 +178,9 @@ class TestPart2_GuestManager(unittest.TestCase):
         self.assertEqual(len(self.gm), 0)
 
     def test_group_all_or_nothing(self) -> None:
+        """กฎเพิ่มแขกเป็นกลุ่ม: ถ้ามีรหัสซ้ำแม้ 1 รายการ ต้องปฏิเสธทั้งกลุ่ม
+        กรณีซ้ำกับแขกที่มีอยู่แล้ว, กรณีซ้ำกันเองภายในกลุ่ม
+        แล้วเช็คว่าจำนวนแขกยังเป็น 1 (คนเดิม) ไม่มีแขกหลุดเข้ามาครึ่งๆ กลางๆ"""
         self.gm.add_guest(1, 1)
         ok, _ = self.gm.add_guests([(2, 1), (3, 1), (1, 1)])
         self.assertFalse(ok)
@@ -169,6 +190,8 @@ class TestPart2_GuestManager(unittest.TestCase):
         self.assertEqual(len(self.gm), 1)
 
     def test_two_way_lookup(self) -> None:
+        """ดัชนีค้นหา 2 ทางต้องสอดคล้องกัน: รหัสแขก -> (อาคาร, ห้อง) แล้วเอาผลนั้นไปค้นกลับ
+        ต้องได้รหัสแขกเดิม ทดสอบหลายคน และเช็คกรณีค้นไม่พบ (ต้องได้ None ไม่ใช่ error)"""
         self.gm.populate_initial(3, 20)
         for (c, s) in [(1, 1), (2, 7), (3, 20)]:
             node, room = self.gm.find_by_guest(c, s)
@@ -177,6 +200,9 @@ class TestPart2_GuestManager(unittest.TestCase):
         self.assertIsNone(self.gm.find_by_room("A", 10**9))
 
     def test_empty_and_sorted_listing(self) -> None:
+        """กรณีไม่มีแขกเลย (K=0): list_rooms ต้องได้ลิสต์ว่าง และผลรวมโหลดต้องเป็น 0 (ไม่ error)
+        จากนั้นเพิ่มแขก 60 คน: รายการห้องต้องเรียงตาม node_id แล้ว room_no
+        และผลรวมแขกทุกอาคารต้องได้ 60 พอดี (ไม่มีใครหายหรือซ้ำ)"""
         self.assertEqual(self.gm.list_rooms(), [])
         self.assertEqual(sum(self.gm.load_per_node().values()), 0)
         self.gm.populate_initial(2, 30)
@@ -185,6 +211,11 @@ class TestPart2_GuestManager(unittest.TestCase):
         self.assertEqual(sum(self.gm.load_per_node().values()), 60)
 
     def test_room_unchanged_after_ring_change(self) -> None:
+        """เทสหลักที่เชื่อมกับวงแหวน: หลังเพิ่มอาคาร D
+        1) find_misplaced ต้องเจอแขกที่ต้องย้าย และทุกคนที่ย้ายต้องย้ายไป D เท่านั้น
+           (ตามหลัก consistent hashing)
+        2) หลัง move_guest ครบ ดัชนีต้องสอดคล้องกับวงแหวน (verify_consistency เป็น True)
+        3) เลขห้อง (room_no) ของทุกคนต้องไม่เปลี่ยน เปลี่ยนแค่ node_id"""
         self.gm.populate_initial(3, 50)
         rooms_before = {k: g.room_no for k, g in self.gm.guests.items()}
         self.assertTrue(self.ring.add_node("D")[0])
@@ -197,6 +228,7 @@ class TestPart2_GuestManager(unittest.TestCase):
         self.assertEqual(rooms_before, {k: g.room_no for k, g in self.gm.guests.items()})
 
     def test_add_guests_range(self) -> None:
+        """ทดสอบการเพิ่มแขกแบบระบุช่วง (c, s_start, count) ตามหัวข้อ 4.1 ข้อ 3"""
         ok, _ = self.gm.add_guests_range(1, 1, 5)
         self.assertTrue(ok)
         self.assertEqual(len(self.gm), 5)
@@ -217,17 +249,20 @@ class TestPart2_GuestManager(unittest.TestCase):
         self.assertTrue(self.gm.verify_consistency())
 
 
-""" Test Section 3 -- Building Manager """
+""" Test Section 3 -- Building Manager (เพิ่ม/ลบอาคาร และการย้ายแขก) """
 class TestPart3_BuildingManager(unittest.TestCase):
     """ทดสอบการเพิ่ม/ลบอาคารตามหัวข้อ 4.4 และกรณีขอบ 4.5"""
 
     def setUp(self) -> None:
+        """ก่อนทุกเทส: อาคาร N1-N4 (V=16, salt=0) แขก 5 ช่องทาง ช่องละ 200 คน (K=1000)"""
         self.ring = HashRing(["N1", "N2", "N3", "N4"], v_nodes=16, salt=0)
         self.gm = GuestManager(self.ring)
         self.gm.populate_initial(5, 200)
         self.bm = BuildingManager(self.ring, self.gm)
 
     def test_add_building_moves_only_to_new_building(self) -> None:
+        """เพิ่มอาคาร N5: ผู้ย้ายต้องเข้า N5 เท่านั้น (4.4 ข้อ 2) จำนวนย้ายนับเป็นรหัสแขก
+        อัตราย้าย = ย้าย/K, เลขห้องไม่เปลี่ยน, ดัชนีสอดคล้องกับวงแหวน และจำนวนแขกไม่หาย"""
         rooms_before = {k: g.room_no for k, g in self.gm.guests.items()}
         nodes_before = {k: g.node_id for k, g in self.gm.guests.items()}
         r = self.bm.add_building("N5")
@@ -245,6 +280,7 @@ class TestPart3_BuildingManager(unittest.TestCase):
         self.assertEqual(rooms_before, {k: g.room_no for k, g in self.gm.guests.items()})
 
     def test_remove_building_moves_only_its_guests(self) -> None:
+        """ลบอาคาร N2: ย้ายเฉพาะแขกของ N2 (เท่ากับจำนวนแขกใน N2 ก่อนลบ) และไม่มีใครค้างที่ N2"""
         victims = self.gm.load_per_node()["N2"]
         r = self.bm.remove_building("N2")
         self.assertTrue(r.ok)
@@ -256,6 +292,8 @@ class TestPart3_BuildingManager(unittest.TestCase):
         self.assertEqual(len(self.gm), 1000)
 
     def test_move_records_and_room_lookup(self) -> None:
+        """รายการย้ายต้องมี รหัสแขก อาคารเดิม อาคารใหม่ เลขห้อง ที่ถูกต้อง
+        และหลังย้าย ค้นด้วย (อาคารใหม่, ห้อง) ต้องเจอแขกคนเดิม ส่วนอาคารเก่าต้องค้นไม่เจอ"""
         r = self.bm.add_building("N5")
         self.assertGreater(len(r.moves), 0)
         for m in r.moves:
@@ -265,6 +303,8 @@ class TestPart3_BuildingManager(unittest.TestCase):
             self.assertEqual(self.gm.find_by_guest(m.c, m.s), (m.new_node, m.room_no))
 
     def test_edge_cases_leave_everything_unchanged(self) -> None:
+        """กรณีขอบ 4.5: เพิ่มซ้ำ, ลบที่ไม่มี, รหัสว่าง ต้องถูกปฏิเสธ (ok=False) โดยวงแหวนและแขกไม่เปลี่ยน
+        แล้วลบจนเหลืออาคารเดียว ตัวสุดท้ายต้องลบไม่ได้ และแขกทั้ง 1000 คนยังอยู่ครบ"""
         ring_snapshot = list(self.ring.ring)
         guests_snapshot = {k: g.node_id for k, g in self.gm.guests.items()}
         for r in (self.bm.add_building("N1"), self.bm.remove_building("N99"),
@@ -284,6 +324,7 @@ class TestPart3_BuildingManager(unittest.TestCase):
         self.assertTrue(self.gm.verify_consistency())
 
     def test_no_guests_rate_not_computed(self) -> None:
+        """K=0 (4.4 ข้อ 4): จำนวนย้ายเป็น 0, ไม่คำนวณอัตราย้าย (None) และมีข้อความอธิบาย ไม่ error"""
         ring = HashRing(["A", "B", "C"], v_nodes=8, salt=0)
         bm = BuildingManager(ring, GuestManager(ring))
         for r in (bm.add_building("D"), bm.remove_building("A")):
@@ -293,6 +334,8 @@ class TestPart3_BuildingManager(unittest.TestCase):
             self.assertIn("K = 0", r.rate_note)
 
     def test_add_then_remove_restores_original(self) -> None:
+        """เพิ่ม N5 แล้วลบ N5 วงแหวนกลับเหมือนเดิม แขกทุกคนต้องกลับไปอาคารเดิม
+        และจำนวนที่ย้ายตอนลบ = จำนวนที่ย้ายตอนเพิ่ม"""
         before = {k: g.node_id for k, g in self.gm.guests.items()}
         added = self.bm.add_building("N5")
         removed = self.bm.remove_building("N5")
@@ -301,6 +344,8 @@ class TestPart3_BuildingManager(unittest.TestCase):
         self.assertTrue(self.gm.verify_consistency())
 
     def test_expected_value_and_hash_ring_beats_modulo(self) -> None:
+        """ใช้ชุดแขกเดียวกัน เพิ่มอาคารเหมือนกัน: Consistent Hashing ย้ายน้อยกว่า hash mod N มาก
+        (ค่าคาดหวัง K/(N+1) = 200 คน เทียบกับ mod ที่ย้ายราว 4/5 ของ K) และเก็บค่าคาดหวังไว้ในผลลัพธ์"""
         ring_r = self.bm.add_building("N5")
         self.assertAlmostEqual(ring_r.expected_moved, 1000 / 5)
 
@@ -313,6 +358,7 @@ class TestPart3_BuildingManager(unittest.TestCase):
         self.assertLess(ring_r.moved_count, r_mod.moved_count)
 
     def test_timing_fields_present(self) -> None:
+        """เก็บเวลาแยกตามขั้นตอน (ปรับวงแหวน / หาแขกที่ย้าย / ย้ายและปรับดัชนี) เป็นค่าไม่ติดลบ"""
         r = self.bm.add_building("N5")
         for t in (r.t_ring_adjust, r.t_find_affected, r.t_update_data):
             self.assertGreaterEqual(t, 0.0)
@@ -323,16 +369,18 @@ class TestPart3_BuildingManager(unittest.TestCase):
 class TestPart5_AdditionalRequirements(unittest.TestCase):
     """ทดสอบส่วนเพิ่มเติมตามเช็กลิสต์ Part 5 และ common.py"""
 
+    def _cleanup_file(self, path: Path) -> None:
+        if path.exists():
+            path.unlink()
+
     def test_load_statistics(self) -> None:
         """1. load_statistics: K=0 ได้ cv=None, กรณีปกติได้สถิติตามจริง, ลิสต์ว่างต้อง raise ValueError"""
-        # กรณีปกติ
         stats = load_statistics([10, 20, 30])
         self.assertEqual(stats["max"], 30)
         self.assertEqual(stats["min"], 10)
         self.assertAlmostEqual(stats["mean"], 20.0)
         self.assertIsNotNone(stats["cv"])
 
-        # กรณี K = 0 (รวมโหลดเป็น 0)
         stats_zero = load_statistics([0, 0, 0])
         self.assertEqual(stats_zero["max"], 0)
         self.assertEqual(stats_zero["min"], 0)
@@ -340,7 +388,6 @@ class TestPart5_AdditionalRequirements(unittest.TestCase):
         self.assertEqual(stats_zero["sd"], 0.0)
         self.assertIsNone(stats_zero["cv"])
 
-        # กรณีลิสต์ว่าง -> ต้อง raise ValueError
         with self.assertRaises(ValueError):
             load_statistics([])
 
@@ -350,13 +397,13 @@ class TestPart5_AdditionalRequirements(unittest.TestCase):
         h_guest_1 = compute_sha256_64bit("guest:1:1", salt=1)
         h_node_0 = compute_sha256_64bit("node:NODE01:0", salt=0)
 
-        # ยืนยันว่าค่าที่ได้เป็น 64-bit unsigned integer
         self.assertIsInstance(h_guest_0, int)
         self.assertGreaterEqual(h_guest_0, 0)
         self.assertLess(h_guest_0, 1 << 64)
 
-        # ค่าต้องนิ่งและตรงกับผลลัพธ์ที่ทดสอบไว้ล่วงหน้า
-        self.assertEqual(h_guest_0, compute_sha256_64bit("guest:1:1", salt=0))
+        self.assertEqual(h_guest_0, 2075508245625393561)
+        self.assertEqual(h_guest_1, 17442632927375598857)
+        self.assertEqual(h_node_0, 4495497354209293340)
         self.assertNotEqual(h_guest_0, h_guest_1)
         self.assertNotEqual(h_guest_0, h_node_0)
 
@@ -368,6 +415,7 @@ class TestPart5_AdditionalRequirements(unittest.TestCase):
 
         RESULTS_DIR.mkdir(parents=True, exist_ok=True)
         export_path = RESULTS_DIR / "test_export_guests.csv"
+        self.addCleanup(self._cleanup_file, export_path)
 
         rows = [
             {"channel_id": c, "sequence_id": s, "node_id": node_id, "room_no": room_no}
@@ -381,34 +429,63 @@ class TestPart5_AdditionalRequirements(unittest.TestCase):
         self.assertTrue(export_path.exists())
         with export_path.open("r", encoding="utf-8") as fh:
             reader = list(csv.DictReader(fh))
-            self.assertEqual(len(reader), 10)  # จำนวนแถวเท่ากับ K
+            self.assertEqual(len(reader), 10)
             self.assertEqual(reader[0].keys(), {"channel_id", "sequence_id", "node_id", "room_no"})
 
-    @patch("builtins.input", side_effect=["3", "4", "0", "2", "10"])
-    def test_menu_input_handling_and_mock(self, mock_input) -> None:
+    def test_menu_input_handling_and_mock(self) -> None:
         """4. เมนูจัดการอินพุตและดักจับข้อผิดพลาดผ่าน unittest.mock.patch"""
         state = {}
-        do_init(state)
-        self.assertIn("guests", state)
-        self.assertEqual(len(state["guests"]), 20)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("builtins.input", side_effect=["3", "4", "0", "2", "10"]):
+                do_init(state)
+            self.assertIn("guests", state)
+            self.assertEqual(len(state["guests"]), 20)
 
-        with patch("builtins.input", side_effect=["abc", "1", "1"]):
-            do_add_guest(state)
-            self.assertEqual(len(state["guests"]), 20)  # เพิ่มไม่สำเร็จเพราะแขกซ้ำ
+            with patch("builtins.input", side_effect=["abc", "1", "1"]):
+                do_add_guest(state)
+                self.assertEqual(len(state["guests"]), 20)
 
-    @patch("builtins.input", side_effect=["1", "1"])
-    def test_menu_export_csv_action(self, mock_input) -> None:
-        """ทดสอบฟังก์ชัน do_export_csv ของเมนู"""
+    def test_menu_export_csv_action(self) -> None:
+        """5. ทดสอบว่า do_add_building บันทึก last_change_result และ do_export_csv เขียนไฟล์ทั้งสองได้จริง"""
+        guest_csv = RESULTS_DIR / "menu_export_guests.csv"
+        moves_csv = RESULTS_DIR / "menu_export_last_moves.csv"
+        self.addCleanup(self._cleanup_file, guest_csv)
+        self.addCleanup(self._cleanup_file, moves_csv)
+
         state = {}
-        with patch("builtins.input", side_effect=["2", "4", "0", "2", "5"]):
-            do_init(state)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("builtins.input", side_effect=["2", "8", "0", "3", "20"]):
+                do_init(state)
+            with patch("builtins.input", side_effect=["NODE03"]):
+                do_add_building(state)
+            self.assertIsNotNone(state["last_change_result"])
+            self.assertTrue(state["last_change_result"].ok)
+            do_export_csv(state)
 
-        state["buildings"].add_building("NODE03")
-        state["last_change_result"] = state["buildings"].add_building("NODE04")
+            with patch("builtins.input", side_effect=["NODE01"]):
+                do_remove_building(state)
 
-        do_export_csv(state)
-        self.assertTrue((RESULTS_DIR / "menu_export_guests.csv").exists())
-        self.assertTrue((RESULTS_DIR / "menu_export_last_moves.csv").exists())
+        self.assertTrue(guest_csv.exists())
+        self.assertTrue(moves_csv.exists())
+        self.assertIn("Expected K/N", buf.getvalue())
+
+    def test_menu_compare_and_performance(self) -> None:
+        """6. ทดสอบการเปรียบเทียบ Consistent vs Modulo ในเมนู และการวัดประสิทธิภาพ"""
+        state = {}
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("builtins.input", side_effect=["3", "8", "0", "2", "50"]):
+                do_init(state)
+            do_list_rooms(state)
+            do_compare_hashing(state)
+            do_measure_performance(state)
+
+        output = buf.getvalue()
+        self.assertIn("Total occupied rooms: 100", output)
+        self.assertNotIn("Consistent Hashing moved: 0 (", output)
+        self.assertIn("tracemalloc", output)
 
 
 if __name__ == "__main__":
