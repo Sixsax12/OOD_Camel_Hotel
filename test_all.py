@@ -1,7 +1,9 @@
 import unittest
 from hash_ring import HashRing, ModuloNodeSelector, compute_sha256_64bit
+from guest_room import GuestManager, cantor_room_no
 
 
+""" Test Section 1 -- Hash Ring Core """
 class TestPart1_HashRingCore(unittest.TestCase):
     """Test ส่วนหลักของ hash ring (หัวข้อ 4.3-4.5, 7.1, 9.1, 9.2 ข้อ 4)"""
 
@@ -112,6 +114,97 @@ class TestPart1_HashRingCore(unittest.TestCase):
             compute_sha256_64bit("guest:1:1", salt=0),
             compute_sha256_64bit("guest:1:1", salt=1),
         )
+        
+""" Test Section 2 -- Guest Room Manager """
+class TestPart2_CantorRoomNo(unittest.TestCase):
+    """ทดสอบสูตร Cantor pairing ที่ใช้คำนวณเลขห้อง (room_no)"""
+ 
+    def test_known_values(self) -> None:
+        """เช็คค่าที่คำนวณมือได้จากสูตรในคู่มือ: (1,1)->1, (2,1)->2, (1,2)->3
+        ถ้าสูตรผิด (เช่นลืม +1 หรือสลับ a กับ b) เทสนี้จะล้ม"""
+        self.assertEqual(cantor_room_no(1, 1), 1)
+        self.assertEqual(cantor_room_no(2, 1), 2)
+        self.assertEqual(cantor_room_no(1, 2), 3)
+ 
+    def test_unique(self) -> None:
+        """เช็คว่ารหัสแขกคนละคู่ต้องได้เลขห้องไม่ซ้ำกัน
+        ลองทุกคู่ c, s ในช่วง 1..59 (3,481 คู่) แล้วนับว่าจำนวนเลขห้องที่ไม่ซ้ำเท่ากับจำนวนคู่"""
+        rooms = {cantor_room_no(c, s) for c in range(1, 60) for s in range(1, 60)}
+        self.assertEqual(len(rooms), 59 * 59)
+ 
+    def test_invalid(self) -> None:
+        """เช็คว่า c หรือ s ที่เป็น 0 หรือติดลบ ต้องโดนปฏิเสธด้วย ValueError (ไม่คำนวณต่อ)"""
+        for bad in [(0, 1), (1, 0), (-1, 5)]:
+            with self.assertRaises(ValueError):
+                cantor_room_no(*bad)
+ 
+ 
+class TestPart2_GuestManager(unittest.TestCase):
+    """ทดสอบ GuestManager: การเพิ่ม/ลบแขก ดัชนี 2 ทาง และการทำงานร่วมกับ HashRing"""
+ 
+    def setUp(self) -> None:
+        """ก่อนทุกเทส: สร้างวงแหวนใหม่ (อาคาร A, B, C, V=8, salt=0) และ GuestManager ว่างๆ"""
+        self.ring = HashRing(["A", "B", "C"], v_nodes=8, salt=0)
+        self.gm = GuestManager(self.ring)
+ 
+    def test_add_remove_and_duplicates(self) -> None:
+        """กรณีขอบเรื่องแขก: เพิ่มรหัสซ้ำต้องถูกปฏิเสธ, ลบแขกที่ไม่มีต้องถูกปฏิเสธ
+        (ได้ False) และลบแขกที่มีอยู่ต้องสำเร็จ จนจำนวนแขกกลับเป็น 0"""
+        self.assertTrue(self.gm.add_guest(1, 1)[0])
+        self.assertFalse(self.gm.add_guest(1, 1)[0])
+        self.assertFalse(self.gm.remove_guest(9, 9)[0])
+        self.assertTrue(self.gm.remove_guest(1, 1)[0])
+        self.assertEqual(len(self.gm), 0)
+ 
+    def test_group_all_or_nothing(self) -> None:
+        """กฎเพิ่มแขกเป็นกลุ่ม: ถ้ามีรหัสซ้ำแม้ 1 รายการ ต้องปฏิเสธทั้งกลุ่ม
+        กรณีซ้ำกับแขกที่มีอยู่แล้ว, กรณีซ้ำกันเองภายในกลุ่ม
+        แล้วเช็คว่าจำนวนแขกยังเป็น 1 (คนเดิม) ไม่มีแขกหลุดเข้ามาครึ่งๆ กลางๆ"""
+        self.gm.add_guest(1, 1)
+        ok, _ = self.gm.add_guests([(2, 1), (3, 1), (1, 1)])
+        self.assertFalse(ok)
+        self.assertEqual(len(self.gm), 1)
+        ok, _ = self.gm.add_guests([(2, 1), (2, 1)])
+        self.assertFalse(ok)
+        self.assertEqual(len(self.gm), 1)
+ 
+    def test_two_way_lookup(self) -> None:
+        """ดัชนีค้นหา 2 ทางต้องสอดคล้องกัน: รหัสแขก -> (อาคาร, ห้อง) แล้วเอาผลนั้นไปค้นกลับ
+        ต้องได้รหัสแขกเดิม ทดสอบหลายคน และเช็คกรณีค้นไม่พบ (ต้องได้ None ไม่ใช่ error)"""
+        self.gm.populate_initial(3, 20)
+        for (c, s) in [(1, 1), (2, 7), (3, 20)]:
+            node, room = self.gm.find_by_guest(c, s)
+            self.assertEqual(self.gm.find_by_room(node, room), (c, s))
+        self.assertIsNone(self.gm.find_by_guest(99, 99))
+        self.assertIsNone(self.gm.find_by_room("A", 10**9))
+ 
+    def test_empty_and_sorted_listing(self) -> None:
+        """กรณีไม่มีแขกเลย (K=0): list_rooms ต้องได้ลิสต์ว่าง และผลรวมโหลดต้องเป็น 0 (ไม่ error)
+        จากนั้นเพิ่มแขก 60 คน: รายการห้องต้องเรียงตาม node_id แล้ว room_no
+        และผลรวมแขกทุกอาคารต้องได้ 60 พอดี (ไม่มีใครหายหรือซ้ำ)"""
+        self.assertEqual(self.gm.list_rooms(), [])
+        self.assertEqual(sum(self.gm.load_per_node().values()), 0)
+        self.gm.populate_initial(2, 30)
+        rows = self.gm.list_rooms()
+        self.assertEqual(rows, sorted(rows))
+        self.assertEqual(sum(self.gm.load_per_node().values()), 60)
+ 
+    def test_room_unchanged_after_ring_change(self) -> None:
+        """เทสหลักที่เชื่อมกับวงแหวน: หลังเพิ่มอาคาร D
+        1) find_misplaced ต้องเจอแขกที่ต้องย้าย และทุกคนที่ย้ายต้องย้ายไป D เท่านั้น
+           (ตามหลัก consistent hashing)
+        2) หลัง move_guest ครบ ดัชนีต้องสอดคล้องกับวงแหวน (verify_consistency เป็น True)
+        3) เลขห้อง (room_no) ของทุกคนต้องไม่เปลี่ยน เปลี่ยนแค่ node_id"""
+        self.gm.populate_initial(3, 50)
+        rooms_before = {k: g.room_no for k, g in self.gm.guests.items()}
+        self.assertTrue(self.ring.add_node("D")[0])
+        moved = self.gm.find_misplaced()
+        self.assertFalse(self.gm.verify_consistency() and moved)
+        for c, s, _old, new in moved:
+            self.assertEqual(new, "D")
+            self.gm.move_guest(c, s, new)
+        self.assertTrue(self.gm.verify_consistency())
+        self.assertEqual(rooms_before, {k: g.room_no for k, g in self.gm.guests.items()})
 
 if __name__ == "__main__":
     unittest.main()
