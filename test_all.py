@@ -1,6 +1,7 @@
 import unittest
 from hash_ring import HashRing, ModuloNodeSelector, compute_sha256_64bit
 from guest_room import GuestManager, cantor_room_no
+from building_manager import BuildingManager
 
 
 """ Test Section 1 -- Hash Ring Core """
@@ -205,6 +206,123 @@ class TestPart2_GuestManager(unittest.TestCase):
             self.gm.move_guest(c, s, new)
         self.assertTrue(self.gm.verify_consistency())
         self.assertEqual(rooms_before, {k: g.room_no for k, g in self.gm.guests.items()})
+
+
+""" Test Section 3 -- Building Manager (เพิ่ม/ลบอาคาร และการย้ายแขก) """
+class TestPart3_BuildingManager(unittest.TestCase):
+    """ทดสอบการเพิ่ม/ลบอาคารตามหัวข้อ 4.4 และกรณีขอบ 4.5"""
+
+    def setUp(self) -> None:
+        """ก่อนทุกเทส: อาคาร N1-N4 (V=16, salt=0) แขก 5 ช่องทาง ช่องละ 200 คน (K=1000)"""
+        self.ring = HashRing(["N1", "N2", "N3", "N4"], v_nodes=16, salt=0)
+        self.gm = GuestManager(self.ring)
+        self.gm.populate_initial(5, 200)
+        self.bm = BuildingManager(self.ring, self.gm)
+
+    def test_add_building_moves_only_to_new_building(self) -> None:
+        """เพิ่มอาคาร N5: ผู้ย้ายต้องเข้า N5 เท่านั้น (4.4 ข้อ 2) จำนวนย้ายนับเป็นรหัสแขก
+        อัตราย้าย = ย้าย/K, เลขห้องไม่เปลี่ยน, ดัชนีสอดคล้องกับวงแหวน และจำนวนแขกไม่หาย"""
+        rooms_before = {k: g.room_no for k, g in self.gm.guests.items()}
+        nodes_before = {k: g.node_id for k, g in self.gm.guests.items()}
+        r = self.bm.add_building("N5")
+        self.assertTrue(r.ok)
+        self.assertGreater(r.moved_count, 0)
+        self.assertEqual(r.rule_violations, [])
+        self.assertTrue(all(m.new_node == "N5" for m in r.moves))
+        self.assertEqual(r.total_guests, 1000)
+        self.assertEqual(r.moved_count, len(r.moves))
+        self.assertAlmostEqual(r.moved_rate, r.moved_count / 1000)
+        # นับเองจากข้อมูลก่อน/หลัง ต้องตรงกับที่รายงาน
+        changed = {k for k, g in self.gm.guests.items() if g.node_id != nodes_before[k]}
+        self.assertEqual(changed, {(m.c, m.s) for m in r.moves})
+        self.assertTrue(self.gm.verify_consistency())
+        self.assertEqual(len(self.gm), 1000)
+        self.assertEqual(rooms_before, {k: g.room_no for k, g in self.gm.guests.items()})
+
+    def test_remove_building_moves_only_its_guests(self) -> None:
+        """ลบอาคาร N2: ย้ายเฉพาะแขกของ N2 (เท่ากับจำนวนแขกใน N2 ก่อนลบ) และไม่มีใครค้างที่ N2"""
+        victims = self.gm.load_per_node()["N2"]
+        r = self.bm.remove_building("N2")
+        self.assertTrue(r.ok)
+        self.assertEqual(r.rule_violations, [])
+        self.assertEqual(r.moved_count, victims)
+        self.assertTrue(all(m.old_node == "N2" and m.new_node != "N2" for m in r.moves))
+        self.assertNotIn("N2", self.gm.load_per_node())
+        self.assertTrue(self.gm.verify_consistency())
+        self.assertEqual(len(self.gm), 1000)
+
+    def test_move_records_and_room_lookup(self) -> None:
+        """รายการย้ายต้องมี รหัสแขก อาคารเดิม อาคารใหม่ เลขห้อง ที่ถูกต้อง
+        และหลังย้าย ค้นด้วย (อาคารใหม่, ห้อง) ต้องเจอแขกคนเดิม ส่วนอาคารเก่าต้องค้นไม่เจอ"""
+        r = self.bm.add_building("N5")
+        self.assertGreater(len(r.moves), 0)
+        for m in r.moves:
+            self.assertEqual(m.room_no, cantor_room_no(m.c, m.s))
+            self.assertEqual(self.gm.find_by_room(m.new_node, m.room_no), (m.c, m.s))
+            self.assertIsNone(self.gm.find_by_room(m.old_node, m.room_no))
+            self.assertEqual(self.gm.find_by_guest(m.c, m.s), (m.new_node, m.room_no))
+
+    def test_edge_cases_leave_everything_unchanged(self) -> None:
+        """กรณีขอบ 4.5: เพิ่มซ้ำ, ลบที่ไม่มี, รหัสว่าง ต้องถูกปฏิเสธ (ok=False) โดยวงแหวนและแขกไม่เปลี่ยน
+        แล้วลบจนเหลืออาคารเดียว ตัวสุดท้ายต้องลบไม่ได้ และแขกทั้ง 1000 คนยังอยู่ครบ"""
+        ring_snapshot = list(self.ring.ring)
+        guests_snapshot = {k: g.node_id for k, g in self.gm.guests.items()}
+        for r in (self.bm.add_building("N1"), self.bm.remove_building("N99"),
+                  self.bm.add_building("  "), self.bm.remove_building("")):
+            self.assertFalse(r.ok)
+            self.assertEqual(r.moved_count, 0)
+            self.assertTrue(r.message)
+        self.assertEqual(self.ring.ring, ring_snapshot)
+        self.assertEqual({k: g.node_id for k, g in self.gm.guests.items()}, guests_snapshot)
+
+        for nid in ("N1", "N2", "N3"):
+            self.assertTrue(self.bm.remove_building(nid).ok)
+        r = self.bm.remove_building("N4")
+        self.assertFalse(r.ok)
+        self.assertEqual(self.bm.list_buildings(), ["N4"])
+        self.assertEqual(self.gm.load_per_node(), {"N4": 1000})
+        self.assertTrue(self.gm.verify_consistency())
+
+    def test_no_guests_rate_not_computed(self) -> None:
+        """K=0 (4.4 ข้อ 4): จำนวนย้ายเป็น 0, ไม่คำนวณอัตราย้าย (None) และมีข้อความอธิบาย ไม่ error"""
+        ring = HashRing(["A", "B", "C"], v_nodes=8, salt=0)
+        bm = BuildingManager(ring, GuestManager(ring))
+        for r in (bm.add_building("D"), bm.remove_building("A")):
+            self.assertTrue(r.ok)
+            self.assertEqual(r.moved_count, 0)
+            self.assertIsNone(r.moved_rate)
+            self.assertIn("K = 0", r.rate_note)
+
+    def test_add_then_remove_restores_original(self) -> None:
+        """เพิ่ม N5 แล้วลบ N5 วงแหวนกลับเหมือนเดิม แขกทุกคนต้องกลับไปอาคารเดิม
+        และจำนวนที่ย้ายตอนลบ = จำนวนที่ย้ายตอนเพิ่ม"""
+        before = {k: g.node_id for k, g in self.gm.guests.items()}
+        added = self.bm.add_building("N5")
+        removed = self.bm.remove_building("N5")
+        self.assertEqual(added.moved_count, removed.moved_count)
+        self.assertEqual({k: g.node_id for k, g in self.gm.guests.items()}, before)
+        self.assertTrue(self.gm.verify_consistency())
+
+    def test_expected_value_and_hash_ring_beats_modulo(self) -> None:
+        """ใช้ชุดแขกเดียวกัน เพิ่มอาคารเหมือนกัน: Consistent Hashing ย้ายน้อยกว่า hash mod N มาก
+        (ค่าคาดหวัง K/(N+1) = 200 คน เทียบกับ mod ที่ย้ายราว 4/5 ของ K) และเก็บค่าคาดหวังไว้ในผลลัพธ์"""
+        ring_r = self.bm.add_building("N5")
+        self.assertAlmostEqual(ring_r.expected_moved, 1000 / 5)
+
+        mod = ModuloNodeSelector(["N1", "N2", "N3", "N4"], salt=0)
+        gm_mod = GuestManager(mod)
+        gm_mod.populate_initial(5, 200)
+        r_mod = BuildingManager(mod, gm_mod, check_rules=False).add_building("N5")
+        self.assertTrue(r_mod.ok)
+        self.assertTrue(gm_mod.verify_consistency())
+        self.assertLess(ring_r.moved_count, r_mod.moved_count)
+
+    def test_timing_fields_present(self) -> None:
+        """เก็บเวลาแยกตามขั้นตอน (ปรับวงแหวน / หาแขกที่ย้าย / ย้ายและปรับดัชนี) เป็นค่าไม่ติดลบ"""
+        r = self.bm.add_building("N5")
+        for t in (r.t_ring_adjust, r.t_find_affected, r.t_update_data):
+            self.assertGreaterEqual(t, 0.0)
+        self.assertGreater(r.t_find_affected, 0.0)
 
 if __name__ == "__main__":
     unittest.main()
