@@ -207,6 +207,32 @@ class TestPart2_GuestManager(unittest.TestCase):
         self.assertTrue(self.gm.verify_consistency())
         self.assertEqual(rooms_before, {k: g.room_no for k, g in self.gm.guests.items()})
 
+    def test_add_guests_range(self) -> None:
+        """เพิ่มแขกเป็นกลุ่มแบบ (c, s_start, count)
+        1) เคสปกติ: ได้แขกครบตามจำนวน และลำดับเริ่มที่ s_start จริง
+        2) count = 0 ต้องสำเร็จแต่ไม่เปลี่ยนข้อมูล
+        3) count ติดลบหรือไม่ใช่จำนวนเต็ม ต้องปฏิเสธอย่างสุภาพ
+        4) ช่วงที่ทับกับแขกเดิมแม้รายการเดียว ต้องปฏิเสธทั้งกลุ่ม ข้อมูลเดิมคงอยู่"""
+        ok, _ = self.gm.add_guests_range(1, 1, 5)
+        self.assertTrue(ok)
+        self.assertEqual(len(self.gm), 5)
+        self.assertEqual(sorted(self.gm.guests), [(1, s) for s in range(1, 6)])
+
+        ok, _ = self.gm.add_guests_range(2, 10, 0)
+        self.assertTrue(ok)
+        self.assertEqual(len(self.gm), 5)
+
+        for bad in (-1, 1.5, True, "3"):
+            self.assertFalse(self.gm.add_guests_range(2, 1, bad)[0])
+        self.assertFalse(self.gm.add_guests_range(0, 1, 3)[0])
+        self.assertEqual(len(self.gm), 5)
+
+        # ช่วง s=3..7 ทับของเดิมที่ s=3,4,5 -> ต้องไม่เพิ่มใครเลย
+        ok, _ = self.gm.add_guests_range(1, 3, 5)
+        self.assertFalse(ok)
+        self.assertEqual(len(self.gm), 5)
+        self.assertTrue(self.gm.verify_consistency())
+
 
 """ Test Section 3 -- Building Manager (เพิ่ม/ลบอาคาร และการย้ายแขก) """
 class TestPart3_BuildingManager(unittest.TestCase):
