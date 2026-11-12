@@ -15,7 +15,7 @@
 
 ## 2. ความต้องการของระบบและโครงสร้างโปรเจกต์
 
-* **Python**: เวอร์ชัน 3.10 ขึ้นไป (พัฒนาและทดสอบบน `Python 3.13.14`)
+* **Python**: เวอร์ชัน 3.10 ขึ้นไป (พัฒนาและทดสอบบน `Python 3.13.5`)
 * **โมดูลมาตรฐาน (Standard Library)**: `bisect`, `hashlib`, `dataclasses`, `csv`, `time`, `tracemalloc`, `statistics`, `unittest` (ส่วนหลักและเมนู CLI ไม่พึ่งแพ็กเกจภายนอก)
 * **แพ็กเกจเสริมสำหรับวาดกราฟ**: `matplotlib>=3.8` (ใช้เฉพาะใน `plots.py` เมื่อสั่งวาดกราฟ PNG)
 
@@ -28,9 +28,10 @@ OOD_Camel_Hotel/
 ├── experiments.py       # Part 4: สคริปต์รันการทดลอง A, B, C และบันทึกไฟล์ CSV
 ├── plots.py             # Part 4: สคริปต์สร้างกราฟ PNG ทั้ง 3 ภาพจากผลการทดลอง
 ├── menu.py              # Part 5: โปรแกรมเมนูข้อความ (Interactive CLI) ครบทุกฟังก์ชัน
-├── test_all.py          # Part 5: ชุดทดสอบอัตโนมัติ (unittest 28 ข้อ) ครอบคลุมกติกาและกรณีขอบทั้งหมด
+├── test_all.py          # Part 5: ชุดทดสอบอัตโนมัติ (unittest 34 ข้อ) ครอบคลุมกติกาและกรณีขอบทั้งหมด
 ├── requirements.txt     # รายการแพ็กเกจเสริมสำหรับวาดกราฟ (matplotlib>=3.8)
-├── results/             # ไฟล์ CSV ข้อมูลแขกตัวอย่าง รายการย้าย และผลการทดลอง A, B, C
+├── report/              # สคริปต์วัดค่าเพิ่มที่ใช้ประกอบรายงาน (extra_measurements.py)
+├── results/             # ไฟล์ CSV ข้อมูลแขกตัวอย่าง รายการย้าย ผลการทดลอง A, B, C และผลดิบของชุดทดสอบ
 ├── figures/             # ไฟล์กราฟ PNG ทั้ง 3 ภาพจากการทดลอง A, B, C
 └── README.md            # เอกสารอธิบายระบบ วิธีใช้งาน การวิเคราะห์ Big-O และผลการทดลอง
 ```
@@ -66,6 +67,10 @@ python menu.py
 ```bash
 pip install -r requirements.txt
 python experiments.py
+```
+ค่าของ `hash mod N` ที่ไฟล์ใน `results/` ไม่มี (เวลาค้นหา, CV, หน่วยความจำ) วัดเพิ่มด้วยสคริปต์แยก ซึ่งไม่เขียนทับไฟล์ใด:
+```bash
+python report/extra_measurements.py
 ```
 
 ## 4. การออกแบบเชิงวัตถุ (OOP) และโครงสร้างข้อมูล

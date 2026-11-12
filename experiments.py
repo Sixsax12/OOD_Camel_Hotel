@@ -331,14 +331,16 @@ C_METRICS = [
     "mem_ring_current_mib", "mem_ring_peak_mib",
     "mem_total_current_mib", "mem_total_peak_mib",
 ]
+C_LOAD_FIELDS = ["experiment", "salt", "N", "V", "K", "node_id", "guest_count"]
 
 
-def run_experiment_C() -> list[dict]:
+def run_experiment_C() -> tuple[list[dict], list[dict]]:
     """จำนวนแขกต่ออาคาร ความสมดุล (CV) หน่วยความจำ และการย้าย เมื่อ V เปลี่ยน"""
     print(f"\n=== การทดลอง C : ผลของ V (N={C_N}, K={C_K:,}) ===")
     node_ids = build_node_ids(C_N)
     per_channel = C_K // N_CHANNELS
     rows: list[dict] = []
+    load_rows: list[dict] = []
 
     for v in C_V_VALUES:
         for salt in SALTS:
@@ -348,7 +350,22 @@ def run_experiment_C() -> list[dict]:
                 raise RuntimeError(f"จัดแขกเริ่มต้นไม่สำเร็จ: {message}")
 
             # นับโหลด รวมอาคารที่มี 0 คนด้วย
-            stats = load_statistics(list(guests.load_per_node().values()))
+            loads = guests.load_per_node()
+            stats = load_statistics(list(loads.values()))
+
+            # เก็บโหลดรายอาคารไว้ลง CSV แยกไฟล์
+            load_rows.extend(
+                {
+                    "experiment": "C",
+                    "salt": salt,
+                    "N": C_N,
+                    "V": v,
+                    "K": C_K,
+                    "node_id": node_id,
+                    "guest_count": loads[node_id],
+                }
+                for node_id in sorted(loads)
+            )
 
             result = buildings.add_building(NEW_NODE_ID)
             if not result.ok:
@@ -402,7 +419,7 @@ def run_experiment_C() -> list[dict]:
             f" | รวมข้อมูลแขก {statistics.median(r['mem_total_peak_mib'] for r in group):5.2f} MiB"
         )
 
-    return rows
+    return rows, load_rows
 
 
 def _write_experiment_B_summary(rows: list[dict]) -> None:
@@ -451,19 +468,24 @@ def _write_experiment_B_summary(rows: list[dict]) -> None:
     )
 
 
-GUEST_FIELDS = ["channel_id", "sequence_id", "node_id", "room_no"]
+# 4 คอลัมน์แรกคือที่โจทย์หัวข้อ 5 ข้อ 10 บังคับ ที่เหลือคือพารามิเตอร์ของรอบที่ส่งออก
+GUEST_FIELDS = ["channel_id", "sequence_id", "node_id", "room_no", "salt", "N", "V", "K"]
 
 
 def write_sample_guests() -> None:
     """ส่งออกข้อมูลแขกเป็น CSV (channel_id, sequence_id, node_id, room_no)"""
     node_ids = build_node_ids(A_N)
-    _, guests, _ = build_system("consistent", node_ids, A_V, SALTS[0])
+    salt = SALTS[0]
+    _, guests, _ = build_system("consistent", node_ids, A_V, salt)
     ok, message = guests.populate_initial(N_CHANNELS, B_K // N_CHANNELS)
     if not ok:
         raise RuntimeError(f"จัดแขกเริ่มต้นไม่สำเร็จ: {message}")
 
     rows = [
-        {"channel_id": c, "sequence_id": s, "node_id": node_id, "room_no": room_no}
+        {
+            "channel_id": c, "sequence_id": s, "node_id": node_id, "room_no": room_no,
+            "salt": salt, "N": A_N, "V": A_V, "K": B_K,
+        }
         for node_id, room_no, c, s in guests.list_rooms()
     ]
     assert len(rows) == len(guests), "จำนวนแถวใน CSV ต้องเท่ากับจำนวนแขกในระบบ"
@@ -477,12 +499,13 @@ def main() -> None:
 
     rows_a = run_experiment_A()
     rows_b, move_rows_b = run_experiment_B()
-    rows_c = run_experiment_C()
+    rows_c, load_rows_c = run_experiment_C()
 
     print("\n=== เขียนไฟล์ CSV ===")
     write_csv(RESULTS_DIR / "experiment_A_rounds.csv", rows_a, A_FIELDS)
     write_csv(RESULTS_DIR / "experiment_B_rounds.csv", rows_b, B_FIELDS)
     write_csv(RESULTS_DIR / "experiment_C_rounds.csv", rows_c, C_FIELDS)
+    write_csv(RESULTS_DIR / "experiment_C_loads.csv", load_rows_c, C_LOAD_FIELDS)
     write_csv(RESULTS_DIR / "experiment_B_moves.csv", move_rows_b, B_MOVE_FIELDS)
     write_sample_guests()
 

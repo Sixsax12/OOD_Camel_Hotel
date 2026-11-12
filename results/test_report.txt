@@ -1,0 +1,73 @@
+test_section_4_4_2_ring_movement_rules (test_all.TestPart1_HashRingCore.test_section_4_4_2_ring_movement_rules)
+เมื่อ V > 1 การเพิ่ม node ต้องย้ายเฉพาะคนที่ไป node ใหม่ และการลบต้องไม่กระทบคนอื่น ... ok
+test_section_4_5_node_edge_cases_and_modulo (test_all.TestPart1_HashRingCore.test_section_4_5_node_edge_cases_and_modulo)
+กรณีขอบ (เพิ่มซ้ำ, ลบที่ไม่มี, ลบตัวสุดท้าย) และ ModuloNodeSelector ... ok
+test_section_9_1_small_ring_example (test_all.TestPart1_HashRingCore.test_section_9_1_small_ring_example)
+ลองตาม ring เล็กๆ ในโจทย์ 9.1 ... ok
+test_section_9_2_4_search_and_collision (test_all.TestPart1_HashRingCore.test_section_9_2_4_search_and_collision)
+ลองค้นหาทั้งแบบตรงจุด อยู่ระหว่างจุด วนกลับต้นวง และ virtual node ที่ position ชนกัน ... ok
+test_sha256_64bit_and_prefix_separation (test_all.TestPart1_HashRingCore.test_sha256_64bit_and_prefix_separation)
+hash 64-bit ต้องได้ค่าเดิมทุกครั้ง และ guest กับ node ต้องไม่ปนกัน ... ok
+test_invalid (test_all.TestPart2_CantorRoomNo.test_invalid)
+เช็คว่า c หรือ s ที่เป็น 0 หรือติดลบ ต้องโดนปฏิเสธด้วย ValueError (ไม่คำนวณต่อ) ... ok
+test_known_values (test_all.TestPart2_CantorRoomNo.test_known_values)
+เช็คค่าที่คำนวณมือได้จากตารางในหัวข้อ 4.2: (1,1)->1, (2,1)->2, (1,2)->3, (3,1)->4, (2,2)->5 ... ok
+test_unique (test_all.TestPart2_CantorRoomNo.test_unique)
+เช็คว่ารหัสแขกคนละคู่ต้องได้เลขห้องไม่ซ้ำกัน ... ok
+test_add_guests_range (test_all.TestPart2_GuestManager.test_add_guests_range)
+ทดสอบการเพิ่มแขกแบบระบุช่วง (c, s_start, count) ตามหัวข้อ 4.1 ข้อ 3 ... ok
+test_add_remove_and_duplicates (test_all.TestPart2_GuestManager.test_add_remove_and_duplicates)
+กรณีขอบเรื่องแขก: เพิ่มรหัสซ้ำต้องถูกปฏิเสธ, ลบแขกที่ไม่มีต้องถูกปฏิเสธ ... ok
+test_empty_and_sorted_listing (test_all.TestPart2_GuestManager.test_empty_and_sorted_listing)
+กรณีไม่มีแขกเลย (K=0): list_rooms ต้องได้ลิสต์ว่าง และผลรวมโหลดต้องเป็น 0 (ไม่ error) ... ok
+test_group_all_or_nothing (test_all.TestPart2_GuestManager.test_group_all_or_nothing)
+กฎเพิ่มแขกเป็นกลุ่ม: ถ้ามีรหัสซ้ำแม้ 1 รายการ ต้องปฏิเสธทั้งกลุ่ม ... ok
+test_room_unchanged_after_ring_change (test_all.TestPart2_GuestManager.test_room_unchanged_after_ring_change)
+เทสหลักที่เชื่อมกับวงแหวน: หลังเพิ่มอาคาร D ... ok
+test_two_way_lookup (test_all.TestPart2_GuestManager.test_two_way_lookup)
+ดัชนีค้นหา 2 ทางต้องสอดคล้องกัน: รหัสแขก -> (อาคาร, ห้อง) แล้วเอาผลนั้นไปค้นกลับ ... ok
+test_add_building_moves_only_to_new_building (test_all.TestPart3_BuildingManager.test_add_building_moves_only_to_new_building)
+เพิ่มอาคาร N5: ผู้ย้ายต้องเข้า N5 เท่านั้น (4.4 ข้อ 2) จำนวนย้ายนับเป็นรหัสแขก ... ok
+test_add_then_remove_restores_original (test_all.TestPart3_BuildingManager.test_add_then_remove_restores_original)
+เพิ่ม N5 แล้วลบ N5 วงแหวนกลับเหมือนเดิม แขกทุกคนต้องกลับไปอาคารเดิม ... ok
+test_edge_cases_leave_everything_unchanged (test_all.TestPart3_BuildingManager.test_edge_cases_leave_everything_unchanged)
+กรณีขอบ 4.5: เพิ่มซ้ำ, ลบที่ไม่มี, รหัสว่าง ต้องถูกปฏิเสธ (ok=False) โดยวงแหวนและแขกไม่เปลี่ยน ... ok
+test_expected_value_and_hash_ring_beats_modulo (test_all.TestPart3_BuildingManager.test_expected_value_and_hash_ring_beats_modulo)
+ใช้ชุดแขกเดียวกัน เพิ่มอาคารเหมือนกัน: Consistent Hashing ย้ายน้อยกว่า hash mod N มาก ... ok
+test_move_records_and_room_lookup (test_all.TestPart3_BuildingManager.test_move_records_and_room_lookup)
+รายการย้ายต้องมี รหัสแขก อาคารเดิม อาคารใหม่ เลขห้อง ที่ถูกต้อง ... ok
+test_no_guests_rate_not_computed (test_all.TestPart3_BuildingManager.test_no_guests_rate_not_computed)
+K=0 (4.4 ข้อ 4): จำนวนย้ายเป็น 0, ไม่คำนวณอัตราย้าย (None) และมีข้อความอธิบาย ไม่ error ... ok
+test_remove_building_moves_only_its_guests (test_all.TestPart3_BuildingManager.test_remove_building_moves_only_its_guests)
+ลบอาคาร N2: ย้ายเฉพาะแขกของ N2 (เท่ากับจำนวนแขกใน N2 ก่อนลบ) และไม่มีใครค้างที่ N2 ... ok
+test_timing_fields_present (test_all.TestPart3_BuildingManager.test_timing_fields_present)
+เก็บเวลาแยกตามขั้นตอน (ปรับวงแหวน / หาแขกที่ย้าย / ย้ายและปรับดัชนี) เป็นค่าไม่ติดลบ ... ok
+test_csv_export_format (test_all.TestPart5_AdditionalRequirements.test_csv_export_format)
+3. การ Export CSV (จำนวนแถวเท่ากับ K, Header ถูกต้อง) ... ok
+test_load_statistics (test_all.TestPart5_AdditionalRequirements.test_load_statistics)
+1. load_statistics: K=0 ได้ cv=None, กรณีปกติได้สถิติตามจริง, ลิสต์ว่างต้อง raise ValueError ... ok
+test_menu_compare_and_performance (test_all.TestPart5_AdditionalRequirements.test_menu_compare_and_performance)
+6. ทดสอบการเปรียบเทียบ Consistent vs Modulo ในเมนู และการวัดประสิทธิภาพ ... ok
+test_menu_export_csv_action (test_all.TestPart5_AdditionalRequirements.test_menu_export_csv_action)
+5. ทดสอบว่า do_add_building บันทึก last_change_result และ do_export_csv เขียนไฟล์ทั้งสองได้จริง ... ok
+test_menu_input_handling_and_mock (test_all.TestPart5_AdditionalRequirements.test_menu_input_handling_and_mock)
+4. เมนูจัดการอินพุตและดักจับข้อผิดพลาดผ่าน unittest.mock.patch ... ok
+test_sha256_fixed_values (test_all.TestPart5_AdditionalRequirements.test_sha256_fixed_values)
+2. ค่า SHA-256 64-bit ที่ fix ไว้เพื่อป้องกันพฤติกรรมแฮชเปลี่ยนข้ามเวอร์ชัน/การรัน ... ok
+test_9_2_1_new_guests_never_move_existing_guests (test_all.TestSection9_2_MinimumChecklist.test_9_2_1_new_guests_never_move_existing_guests)
+9.2 ข้อ 1: เพิ่มแขกใหม่ทั้งช่องทางเดิมและช่องทางใหม่ (รายคนและเป็นกลุ่ม) ... ok
+test_9_2_3_rejected_batch_leaves_data_untouched (test_all.TestSection9_2_MinimumChecklist.test_9_2_3_rejected_batch_leaves_data_untouched)
+9.2 ข้อ 3: กลุ่มที่ซ้ำเพียงบางรายการต้องถูกปฏิเสธ และข้อมูลเดิมต้องเหมือนเดิมทุกค่า ... ok
+test_9_2_6_csv_rows_match_current_guest_count (test_all.TestSection9_2_MinimumChecklist.test_9_2_6_csv_rows_match_current_guest_count)
+9.2 ข้อ 6: จำนวนแถวใน CSV ที่เมนูส่งออก = จำนวนแขกปัจจุบัน (หลังเพิ่ม/ลบแขกและเพิ่มอาคาร) ... ok
+test_9_2_6_remove_last_building_without_guests (test_all.TestSection9_2_MinimumChecklist.test_9_2_6_remove_last_building_without_guests)
+4.5: ลบอาคารสุดท้ายต้องถูกปฏิเสธแม้ไม่มีแขก และวงแหวนยังค้นหาได้ ... ok
+test_init_with_different_guest_count_per_channel (test_all.TestSection9_2_MinimumChecklist.test_init_with_different_guest_count_per_channel)
+หัวข้อ 5 ข้อ 1: กำหนดจำนวนแขกของแต่ละช่องทางแยกกันได้ ลำดับ s เริ่มที่ 1 ทุกช่องทาง ... ok
+test_load_report_with_no_guests (test_all.TestSection9_2_MinimumChecklist.test_load_report_with_no_guests)
+หัวข้อ 5 ข้อ 7 / 7.2: K=0 รายงานทุกอาคารเป็น 0 สถิติพื้นฐานเป็น 0 และไม่คำนวณ CV ... ok
+
+----------------------------------------------------------------------
+Ran 34 tests in 0.099s
+
+OK

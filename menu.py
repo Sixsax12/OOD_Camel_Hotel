@@ -79,16 +79,20 @@ def do_init(state):
     v = ask_int("Virtual node (per building) V: ")
     salt = ask_int("salt (0,1,2,...): ")
     channels = ask_int("Number of channel: ")
-    per = ask_int("Defult Guest (per channel): ")
+    per = ask_int("Defult Guest (per channel, -1 = set each channel): ")
     if n < 1 or v < 1:
         print("  N and V must more than 0")
         return
-    if channels < 1 or per < 0:
+    if channels < 1 or per < -1:
         print("  Number of channels must be >= 1 and guests per channel must be >= 0")
         return
     ring = HashRing([f"NODE{i:02d}" for i in range(1, n + 1)], v_nodes=v, salt=salt)
     guests = GuestManager(ring)
-    show_result(guests.populate_initial(channels, per))
+    if per >= 0:
+        show_result(guests.populate_initial(channels, per))
+    else:
+        for c in range(1, channels + 1):  # ระบุจำนวนแขกแยกทีละช่องทาง s เริ่มที่ 1 ทุกช่องทาง
+            show_result(guests.add_guests_range(c, 1, ask_int(f"  Guest in channel {c}: ")))
     state["ring"], state["guests"] = ring, guests
     state["buildings"] = BuildingManager(ring, guests)
     state["last_change_result"] = None

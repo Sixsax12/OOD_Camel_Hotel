@@ -488,5 +488,117 @@ class TestPart5_AdditionalRequirements(unittest.TestCase):
         self.assertIn("tracemalloc", output)
 
 
+""" Test Section 9.2 -- Minimum Checklist """
+class TestSection9_2_MinimumChecklist(unittest.TestCase):
+    """เช็กลิสต์ขั้นต่ำตามโจทย์หัวข้อ 9.2 และ 4.5 ที่ยังไม่ถูกครอบในคลาสอื่น"""
+
+    def setUp(self) -> None:
+        self.ring = HashRing(["NODE01", "NODE02", "NODE03"], v_nodes=16, salt=0)
+        self.gm = GuestManager(self.ring)
+
+    def _cleanup_file(self, path: Path) -> None:
+        if path.exists():
+            path.unlink()
+
+    def test_9_2_1_new_guests_never_move_existing_guests(self) -> None:
+        """9.2 ข้อ 1: เพิ่มแขกใหม่ทั้งช่องทางเดิมและช่องทางใหม่ (รายคนและเป็นกลุ่ม)
+        ที่อยู่ห้องของแขกเดิมต้องไม่เปลี่ยนแม้แต่คนเดียว ทั้ง node_id และ room_no"""
+        self.gm.populate_initial(3, 100)  # แขกเดิม 300 คน
+        before = {k: (g.node_id, g.room_no) for k, g in self.gm.guests.items()}
+
+        self.assertTrue(self.gm.add_guests_range(1, 101, 30)[0])   # ช่องทางเดิม เป็นกลุ่ม
+        self.assertTrue(self.gm.add_guest(3, 101)[0])              # ช่องทางเดิม รายคน
+        self.assertTrue(self.gm.add_guests_range(4, 1, 100)[0])    # ช่องทางใหม่ เป็นกลุ่ม
+        self.assertTrue(self.gm.add_guests([(5, 1)])[0])           # ช่องทางใหม่ รายคน
+
+        after = {k: (g.node_id, g.room_no) for k, g in self.gm.guests.items()}
+        for key, address in before.items():
+            self.assertEqual(after[key], address, f"แขกเดิม {key} ถูกย้ายทั้งที่ไม่ควรขยับ")
+        self.assertEqual(len(self.gm), 300 + 132)
+        self.assertTrue(self.gm.verify_consistency())
+
+    def test_9_2_3_rejected_batch_leaves_data_untouched(self) -> None:
+        """9.2 ข้อ 3: กลุ่มที่ซ้ำเพียงบางรายการต้องถูกปฏิเสธ และข้อมูลเดิมต้องเหมือนเดิมทุกค่า"""
+        self.gm.populate_initial(2, 20)
+        before = {k: (g.node_id, g.room_no) for k, g in self.gm.guests.items()}
+        before_rooms = self.gm.list_rooms()
+
+        ok, _ = self.gm.add_guests([(1, 21), (1, 22), (2, 5), (1, 23)])  # (2,5) ซ้ำ
+        self.assertFalse(ok)
+        ok, _ = self.gm.add_guests_range(1, 19, 5)  # ทับ (1,19) และ (1,20)
+        self.assertFalse(ok)
+
+        after = {k: (g.node_id, g.room_no) for k, g in self.gm.guests.items()}
+        self.assertEqual(after, before)
+        self.assertEqual(self.gm.list_rooms(), before_rooms)
+        self.assertEqual(len(self.gm), 40)
+        self.assertTrue(self.gm.verify_consistency())
+
+    def test_9_2_6_csv_rows_match_current_guest_count(self) -> None:
+        """9.2 ข้อ 6: จำนวนแถวใน CSV ที่เมนูส่งออก = จำนวนแขกปัจจุบัน (หลังเพิ่ม/ลบแขกและเพิ่มอาคาร)"""
+        guest_csv = RESULTS_DIR / "menu_export_guests.csv"
+        self.addCleanup(self._cleanup_file, guest_csv)
+        self.addCleanup(self._cleanup_file, RESULTS_DIR / "menu_export_last_moves.csv")
+
+        state = {}
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with patch("builtins.input", side_effect=["3", "8", "0", "4", "25"]):
+                do_init(state)  # K = 100
+            state["guests"].add_guests_range(5, 1, 10)
+            state["guests"].remove_guest(1, 1)
+            with patch("builtins.input", side_effect=["NODE04"]):
+                do_add_building(state)
+            do_export_csv(state)
+
+        expected = len(state["guests"])
+        self.assertEqual(expected, 109)
+        with guest_csv.open("r", encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        self.assertEqual(len(rows), expected)
+        self.assertTrue(state["guests"].verify_consistency())
+
+    def test_9_2_6_remove_last_building_without_guests(self) -> None:
+        """4.5: ลบอาคารสุดท้ายต้องถูกปฏิเสธแม้ไม่มีแขก และวงแหวนยังค้นหาได้"""
+        ring = HashRing(["NODE01"], v_nodes=8, salt=0)
+        gm = GuestManager(ring)
+        buildings = BuildingManager(ring, gm)
+
+        result = buildings.remove_building("NODE01")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.moved_count, 0)
+        self.assertEqual(buildings.list_buildings(), ["NODE01"])
+        self.assertEqual(ring.get_node(1, 1), "NODE01")
+
+        self.assertTrue(gm.add_guest(1, 1)[0])
+        self.assertEqual(gm.find_by_guest(1, 1), ("NODE01", cantor_room_no(1, 1)))
+
+    def test_init_with_different_guest_count_per_channel(self) -> None:
+        """หัวข้อ 5 ข้อ 1: กำหนดจำนวนแขกของแต่ละช่องทางแยกกันได้ ลำดับ s เริ่มที่ 1 ทุกช่องทาง"""
+        counts = {1: 5, 2: 12, 3: 1}
+        for c, count in counts.items():
+            self.assertTrue(self.gm.add_guests_range(c, 1, count)[0])
+
+        self.assertEqual(len(self.gm), sum(counts.values()))
+        for c, count in counts.items():
+            seqs = sorted(s for (ch, s) in self.gm.guests if ch == c)
+            self.assertEqual(seqs, list(range(1, count + 1)))
+        self.assertTrue(self.gm.verify_consistency())
+
+    def test_load_report_with_no_guests(self) -> None:
+        """หัวข้อ 5 ข้อ 7 / 7.2: K=0 รายงานทุกอาคารเป็น 0 สถิติพื้นฐานเป็น 0 และไม่คำนวณ CV"""
+        loads = self.gm.load_per_node()
+        self.assertEqual(sorted(loads), ["NODE01", "NODE02", "NODE03"])
+        self.assertEqual(set(loads.values()), {0})
+
+        stats = load_statistics(list(loads.values()))
+        self.assertEqual(stats["max"], 0)
+        self.assertEqual(stats["min"], 0)
+        self.assertEqual(stats["mean"], 0.0)
+        self.assertEqual(stats["sd"], 0.0)
+        self.assertIsNone(stats["cv"])
+        self.assertEqual(self.gm.list_rooms(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
