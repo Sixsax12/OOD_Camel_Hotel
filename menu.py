@@ -86,13 +86,19 @@ def do_init(state):
     if channels < 1 or per < -1:
         print("  Number of channels must be >= 1 and guests per channel must be >= 0")
         return
+    counts = None
+    if per < 0:  # ระบุจำนวนแขกแยกทีละช่องทาง ตรวจให้ครบก่อนสร้างระบบ
+        counts = [ask_int(f"  Guest in channel {c}: ") for c in range(1, channels + 1)]
+        if any(count < 0 for count in counts):
+            print("  Guests per channel must be >= 0, system not created")
+            return
     ring = HashRing([f"NODE{i:02d}" for i in range(1, n + 1)], v_nodes=v, salt=salt)
     guests = GuestManager(ring)
-    if per >= 0:
+    if counts is None:
         show_result(guests.populate_initial(channels, per))
     else:
-        for c in range(1, channels + 1):  # ระบุจำนวนแขกแยกทีละช่องทาง s เริ่มที่ 1 ทุกช่องทาง
-            show_result(guests.add_guests_range(c, 1, ask_int(f"  Guest in channel {c}: ")))
+        for c, count in enumerate(counts, start=1):  # s เริ่มที่ 1 ทุกช่องทาง
+            show_result(guests.add_guests_range(c, 1, count))
     state["ring"], state["guests"] = ring, guests
     state["buildings"] = BuildingManager(ring, guests)
     state["last_change_result"] = None
